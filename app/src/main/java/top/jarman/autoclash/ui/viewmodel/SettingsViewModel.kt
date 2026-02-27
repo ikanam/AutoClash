@@ -19,7 +19,8 @@ data class SettingsUiState(
     val baseUrl: String = "",
     val secret: String = "",
     val connectionStatus: ConnectionStatus = ConnectionStatus.IDLE,
-    val isServiceRunning: Boolean = false
+    val isServiceRunning: Boolean = false,
+    val showNotification: Boolean = true
 )
 
 enum class ConnectionStatus {
@@ -37,14 +38,29 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         viewModelScope.launch {
             val url = settingsRepo.apiBaseUrl.first()
             val secret = settingsRepo.apiSecret.first()
+            val showNotif = settingsRepo.showNotification.first()
             _uiState.value = _uiState.value.copy(
                 baseUrl = url,
-                secret = secret
+                secret = secret,
+                showNotification = showNotif
             )
             // Auto-connect if there's a saved API URL
             if (url.isNotBlank()) {
                 autoConnect(url, secret)
             }
+
+            // Keep notification state updated
+            launch {
+                settingsRepo.showNotification.collect { show ->
+                    _uiState.value = _uiState.value.copy(showNotification = show)
+                }
+            }
+        }
+    }
+
+    fun toggleNotification(show: Boolean) {
+        viewModelScope.launch {
+            settingsRepo.setShowNotification(show)
         }
     }
 

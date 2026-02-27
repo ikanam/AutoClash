@@ -3,6 +3,7 @@ package top.jarman.autoclash.data.repository
 import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
@@ -16,6 +17,7 @@ class SettingsRepository(private val context: Context) {
     companion object {
         private val KEY_API_BASE_URL = stringPreferencesKey("api_base_url")
         private val KEY_API_SECRET = stringPreferencesKey("api_secret")
+        private val KEY_SHOW_NOTIFICATION = booleanPreferencesKey("show_notification")
     }
 
     val apiBaseUrl: Flow<String> = context.settingsDataStore.data.map { prefs ->
@@ -26,10 +28,20 @@ class SettingsRepository(private val context: Context) {
         prefs[KEY_API_SECRET] ?: ""
     }
 
+    val showNotification: Flow<Boolean> = context.settingsDataStore.data.map { prefs ->
+        prefs[KEY_SHOW_NOTIFICATION] ?: true
+    }
+
     suspend fun saveApiConfig(baseUrl: String, secret: String) {
         context.settingsDataStore.edit { prefs ->
             prefs[KEY_API_BASE_URL] = baseUrl
             prefs[KEY_API_SECRET] = secret
+        }
+    }
+
+    suspend fun setShowNotification(show: Boolean) {
+        context.settingsDataStore.edit { prefs ->
+            prefs[KEY_SHOW_NOTIFICATION] = show
         }
     }
 }

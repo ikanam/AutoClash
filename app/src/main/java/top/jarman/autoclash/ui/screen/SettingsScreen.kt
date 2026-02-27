@@ -38,6 +38,7 @@ import top.jarman.autoclash.ui.viewmodel.SettingsViewModel
 @Composable
 fun SettingsScreen(
     onNavigateToGroups: () -> Unit,
+    onNavigateToAppSettings: () -> Unit,
     viewModel: SettingsViewModel = viewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -53,6 +54,11 @@ fun SettingsScreen(
                         fontWeight = FontWeight.Bold,
                         fontSize = 24.sp
                     )
+                },
+                actions = {
+                    IconButton(onClick = onNavigateToAppSettings) {
+                        Icon(Icons.Default.Settings, contentDescription = "设置")
+                    }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.background

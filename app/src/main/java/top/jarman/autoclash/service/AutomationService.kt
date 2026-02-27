@@ -42,6 +42,29 @@ class AutomationService : Service() {
 
         registerNetworkReceiver()
 
+        val settingsRepo = top.jarman.autoclash.data.repository.SettingsRepository(applicationContext)
+
+        // Listen for notification setting changes
+        serviceScope.launch {
+            settingsRepo.showNotification.collect { show ->
+                if (show) {
+                    androidx.core.app.ServiceCompat.startForeground(
+                        this@AutomationService,
+                        NOTIFICATION_ID,
+                        createNotification(),
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
+                            android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+                        else 0
+                    )
+                } else {
+                    androidx.core.app.ServiceCompat.stopForeground(
+                        this@AutomationService,
+                        androidx.core.app.ServiceCompat.STOP_FOREGROUND_REMOVE
+                    )
+                }
+            }
+        }
+
         // Run initial evaluation
         serviceScope.launch {
             ruleEngine.evaluateRules()
