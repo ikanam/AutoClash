@@ -22,7 +22,8 @@ data class RuleEditorUiState(
     val rules: List<AutomationRule> = emptyList(),
     val isLoading: Boolean = false,
     val error: String? = null,
-    val showAddDialog: Boolean = false
+    val showAddDialog: Boolean = false,
+    val editingRule: AutomationRule? = null
 )
 
 class RuleEditorViewModel(application: Application) : AndroidViewModel(application) {
@@ -70,44 +71,66 @@ class RuleEditorViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     fun showAddDialog() {
-        _uiState.value = _uiState.value.copy(showAddDialog = true)
+        _uiState.value = _uiState.value.copy(showAddDialog = true, editingRule = null)
+    }
+
+    fun showEditDialog(rule: AutomationRule) {
+        _uiState.value = _uiState.value.copy(showAddDialog = true, editingRule = rule)
     }
 
     fun dismissDialog() {
-        _uiState.value = _uiState.value.copy(showAddDialog = false)
+        _uiState.value = _uiState.value.copy(showAddDialog = false, editingRule = null)
     }
 
-    fun addRule(ruleType: RuleType, condition: String, targetProxy: String) {
+    fun addRule(ruleType: RuleType, condition: String, targetProxy: String, negate: Boolean = false) {
         viewModelScope.launch {
             val rule = AutomationRule(
                 groupName = _uiState.value.groupName,
                 ruleType = ruleType,
                 condition = condition,
-                targetProxy = targetProxy
+                targetProxy = targetProxy,
+                negate = negate
             )
             ruleRepo.addRule(rule)
-            val updatedRules = ruleRepo.getRulesForGroup(_uiState.value.groupName).first()
-            _uiState.value = _uiState.value.copy(
-                rules = updatedRules,
-                showAddDialog = false
-            )
+            refreshRules()
         }
+    }
+
+    fun updateRule(ruleType: RuleType, condition: String, targetProxy: String, negate: Boolean) {
+        val editing = _uiState.value.editingRule ?: return
+        viewModelScope.launch {
+            val updated = editing.copy(
+                ruleType = ruleType,
+                condition = condition,
+                targetProxy = targetProxy,
+                negate = negate
+            )
+            ruleRepo.updateRule(updated)
+            refreshRules()
+        }
+    }
+
+    private suspend fun refreshRules() {
+        val updatedRules = ruleRepo.getRulesForGroup(_uiState.value.groupName).first()
+        _uiState.value = _uiState.value.copy(
+            rules = updatedRules,
+            showAddDialog = false,
+            editingRule = null
+        )
     }
 
     fun toggleRule(rule: AutomationRule) {
         viewModelScope.launch {
             val updated = rule.copy(enabled = !rule.enabled)
             ruleRepo.updateRule(updated)
-            val updatedRules = ruleRepo.getRulesForGroup(_uiState.value.groupName).first()
-            _uiState.value = _uiState.value.copy(rules = updatedRules)
+            refreshRules()
         }
     }
 
     fun deleteRule(ruleId: String) {
         viewModelScope.launch {
             ruleRepo.deleteRule(ruleId)
-            val updatedRules = ruleRepo.getRulesForGroup(_uiState.value.groupName).first()
-            _uiState.value = _uiState.value.copy(rules = updatedRules)
+            refreshRules()
         }
     }
 }

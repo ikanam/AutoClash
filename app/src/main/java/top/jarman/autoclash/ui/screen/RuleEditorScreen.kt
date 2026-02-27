@@ -154,7 +154,8 @@ fun RuleEditorScreen(
                     RuleCard(
                         rule = rule,
                         onToggle = { viewModel.toggleRule(rule) },
-                        onDelete = { viewModel.deleteRule(rule.id) }
+                        onDelete = { viewModel.deleteRule(rule.id) },
+                        onEdit = { viewModel.showEditDialog(rule) }
                     )
                 }
 
@@ -164,13 +165,18 @@ fun RuleEditorScreen(
             }
         }
 
-        // Add Rule Dialog
+        // Add / Edit Rule Dialog
         if (uiState.showAddDialog) {
-            AddRuleDialog(
+            RuleDialog(
+                editingRule = uiState.editingRule,
                 allProxies = uiState.allProxies,
                 onDismiss = viewModel::dismissDialog,
-                onConfirm = { type, condition, proxy ->
-                    viewModel.addRule(type, condition, proxy)
+                onConfirm = { type, condition, proxy, negate ->
+                    if (uiState.editingRule != null) {
+                        viewModel.updateRule(type, condition, proxy, negate)
+                    } else {
+                        viewModel.addRule(type, condition, proxy, negate)
+                    }
                 }
             )
         }
@@ -181,7 +187,8 @@ fun RuleEditorScreen(
 private fun RuleCard(
     rule: AutomationRule,
     onToggle: () -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    onEdit: () -> Unit
 ) {
     val (icon, color) = when (rule.ruleType) {
         RuleType.WLAN -> Icons.Default.Wifi to MaterialTheme.colorScheme.secondary
@@ -189,6 +196,7 @@ private fun RuleCard(
     }
 
     Card(
+        onClick = onEdit,
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(
@@ -263,28 +271,32 @@ private fun RuleCard(
 }
 
 private fun conditionDescription(rule: AutomationRule): String {
+    val prefix = if (rule.negate) "非 " else ""
     return when (rule.ruleType) {
-        RuleType.WLAN -> "WiFi: ${rule.condition}"
-        RuleType.CARRIER -> "运营商: ${rule.condition}"
+        RuleType.WLAN -> "WiFi: ${prefix}${rule.condition}"
+        RuleType.CARRIER -> "运营商: ${prefix}${rule.condition}"
     }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun AddRuleDialog(
+private fun RuleDialog(
+    editingRule: AutomationRule?,
     allProxies: List<String>,
     onDismiss: () -> Unit,
-    onConfirm: (RuleType, String, String) -> Unit
+    onConfirm: (RuleType, String, String, Boolean) -> Unit
 ) {
-    var selectedType by remember { mutableStateOf(RuleType.WLAN) }
-    var condition by remember { mutableStateOf("") }
-    var selectedProxy by remember { mutableStateOf(allProxies.firstOrNull() ?: "") }
+    val isEditing = editingRule != null
+    var selectedType by remember { mutableStateOf(editingRule?.ruleType ?: RuleType.WLAN) }
+    var condition by remember { mutableStateOf(editingRule?.condition ?: "") }
+    var selectedProxy by remember { mutableStateOf(editingRule?.targetProxy ?: allProxies.firstOrNull() ?: "") }
     var proxyDropdownExpanded by remember { mutableStateOf(false) }
+    var negate by remember { mutableStateOf(editingRule?.negate ?: false) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
-            Text("添加自动化规则", fontWeight = FontWeight.Bold)
+            Text(if (isEditing) "编辑自动化规则" else "添加自动化规则", fontWeight = FontWeight.Bold)
         },
         text = {
             Column(
@@ -356,6 +368,23 @@ private fun AddRuleDialog(
                     shape = RoundedCornerShape(12.dp)
                 )
 
+                // Negate checkbox
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Checkbox(
+                        checked = negate,
+                        onCheckedChange = { negate = it }
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        "取反匹配（不满足条件时触发）",
+                        fontSize = 14.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
                 // Target proxy dropdown
                 ExposedDropdownMenuBox(
                     expanded = proxyDropdownExpanded,
@@ -393,10 +422,10 @@ private fun AddRuleDialog(
         },
         confirmButton = {
             TextButton(
-                onClick = { onConfirm(selectedType, condition, selectedProxy) },
+                onClick = { onConfirm(selectedType, condition, selectedProxy, negate) },
                 enabled = condition.isNotBlank() && selectedProxy.isNotBlank()
             ) {
-                Text("添加")
+                Text(if (isEditing) "保存" else "添加")
             }
         },
         dismissButton = {

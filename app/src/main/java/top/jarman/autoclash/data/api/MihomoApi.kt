@@ -24,11 +24,11 @@ interface MihomoApi {
     suspend fun getProxyGroup(@Path("name") name: String): Response<ProxyDetail>
 
     /**
-     * Switch the selected proxy in a Selector group
-     */
-    @PUT("proxies/{name}")
-    suspend fun switchProxy(
-        @Path("name") groupName: String,
-        @Body request: SwitchProxyRequest
-    ): Response<Unit>
+* Switch the selected proxy in a Selector group
+*/
+@PUT("proxies/{name}")
+suspend fun switchProxy(
+    @Path("name") groupName: String,
+    @Body request: SwitchProxyRequest
+): Response<Unit>
 }

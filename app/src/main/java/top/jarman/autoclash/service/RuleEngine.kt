@@ -2,7 +2,6 @@ package top.jarman.autoclash.service
 
 import android.content.Context
 import android.net.wifi.WifiManager
-import android.telephony.TelephonyManager
 import android.util.Log
 import kotlinx.coroutines.flow.first
 import top.jarman.autoclash.data.api.ApiClient
@@ -106,9 +105,10 @@ class RuleEngine(private val context: Context) {
             Log.i(TAG, "当前环境: SSID=[$currentSsid], 运营商=[$currentCarrier]")
 
             for (rule in rules) {
-                Log.d(TAG, "检查规则: type=${rule.ruleType}, condition=[${rule.condition}], group=${rule.groupName}, target=${rule.targetProxy}")
+                val negateLabel = if (rule.negate) " [取反]" else ""
+                Log.d(TAG, "检查规则: type=${rule.ruleType}$negateLabel, condition=[${rule.condition}], group=${rule.groupName}, target=${rule.targetProxy}")
 
-                val matches = when (type) {
+                val rawMatch = when (type) {
                     RuleType.WLAN -> {
                         val result = currentSsid != null && currentSsid == rule.condition
                         Log.d(TAG, "  WLAN匹配: 当前SSID=[$currentSsid] vs 规则条件=[${rule.condition}] -> $result")
@@ -119,6 +119,11 @@ class RuleEngine(private val context: Context) {
                         Log.d(TAG, "  运营商匹配: 当前运营商=[$currentCarrier] vs 规则条件=[${rule.condition}] -> $result")
                         result
                     }
+                }
+
+                val matches = if (rule.negate) !rawMatch else rawMatch
+                if (rule.negate) {
+                    Log.d(TAG, "  取反后: $matches")
                 }
 
                 if (matches) {
@@ -161,12 +166,33 @@ class RuleEngine(private val context: Context) {
         }
     }
 
+    /**
+     * Get current network ISP by querying public IP info.
+     * Works for both WiFi and cellular - detects actual broadband provider.
+     */
     private fun getCurrentCarrier(): String? {
         return try {
-            val tm = context.getSystemService(Context.TELEPHONY_SERVICE) as TelephonyManager
-            tm.networkOperatorName.takeIf { it.isNotBlank() }
+            val url = java.net.URL("http://ip-api.com/json/?fields=isp&lang=zh-CN")
+            val connection = url.openConnection() as java.net.HttpURLConnection
+            connection.connectTimeout = 5000
+            connection.readTimeout = 5000
+            connection.requestMethod = "GET"
+
+            val responseCode = connection.responseCode
+            if (responseCode == 200) {
+                val body = connection.inputStream.bufferedReader().readText()
+                connection.disconnect()
+                // Response: {"isp":"中国电信"}
+                val isp = org.json.JSONObject(body).optString("isp", "")
+                Log.i(TAG, "当前网络 ISP: [$isp]")
+                isp.takeIf { it.isNotBlank() }
+            } else {
+                connection.disconnect()
+                Log.w(TAG, "IP lookup failed: HTTP $responseCode")
+                null
+            }
         } catch (e: Exception) {
-            Log.e(TAG, "Error getting carrier", e)
+            Log.e(TAG, "Error detecting ISP via IP lookup", e)
             null
         }
     }

@@ -17,7 +17,8 @@ data class AutomationRule(
     val id: String = UUID.randomUUID().toString(),
     val groupName: String,
     val ruleType: RuleType,
-    val condition: String, // WLAN: SSID name, TIME: "HH:mm-HH:mm", CARRIER: carrier name
+    val condition: String, // WLAN: SSID name, CARRIER: ISP name
     val targetProxy: String,
-    val enabled: Boolean = true
+    val enabled: Boolean = true,
+    val negate: Boolean = false // true = match when condition does NOT match
 )
