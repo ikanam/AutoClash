@@ -81,8 +81,8 @@ fun PermissionRationaleScreen(
         // Permission items
         PermissionItem(
             icon = Icons.Default.LocationOn,
-            title = "位置权限",
-            description = "用于获取当前连接的 WiFi 名称 (SSID)。Android 系统要求必须授予位置权限才能读取 WiFi 信息，AutoClash 不会收集您的位置数据。",
+            title = "位置权限（含后台）",
+            description = "用于获取当前连接的 WiFi 名称 (SSID)。后台运行时也需要定位权限才能读取 WiFi 信息。系统会分两步请求：先授予前台定位，再授予「始终允许」后台定位。AutoClash 不会收集您的位置数据。",
             color = MaterialTheme.colorScheme.primary
         )
 
