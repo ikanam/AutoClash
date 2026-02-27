@@ -23,7 +23,8 @@ data class RuleEditorUiState(
     val isLoading: Boolean = false,
     val error: String? = null,
     val showAddDialog: Boolean = false,
-    val editingRule: AutomationRule? = null
+    val editingRule: AutomationRule? = null,
+    val hasShownIspWarning: Boolean = false
 )
 
 class RuleEditorViewModel(application: Application) : AndroidViewModel(application) {
@@ -33,6 +34,14 @@ class RuleEditorViewModel(application: Application) : AndroidViewModel(applicati
 
     private val _uiState = MutableStateFlow(RuleEditorUiState())
     val uiState: StateFlow<RuleEditorUiState> = _uiState.asStateFlow()
+
+    init {
+        viewModelScope.launch {
+            settingsRepo.hasShownIspWarning.collect { hasShown ->
+                _uiState.value = _uiState.value.copy(hasShownIspWarning = hasShown)
+            }
+        }
+    }
 
     fun loadGroup(groupName: String) {
         viewModelScope.launch {
@@ -159,6 +168,12 @@ class RuleEditorViewModel(application: Application) : AndroidViewModel(applicati
                 }
             }
             refreshRules()
+        }
+    }
+
+    fun markIspWarningAsShown() {
+        viewModelScope.launch {
+            settingsRepo.setHasShownIspWarning(true)
         }
     }
 }

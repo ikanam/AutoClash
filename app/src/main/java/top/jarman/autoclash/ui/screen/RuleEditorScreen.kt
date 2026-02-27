@@ -253,6 +253,8 @@ fun RuleEditorScreen(
             RuleDialog(
                 editingRule = uiState.editingRule,
                 allProxies = uiState.allProxies,
+                hasShownIspWarning = uiState.hasShownIspWarning,
+                onIspWarningShown = viewModel::markIspWarningAsShown,
                 onDismiss = viewModel::dismissDialog,
                 onConfirm = { type, condition, proxy, negate ->
                     if (uiState.editingRule != null) {
@@ -391,6 +393,8 @@ private fun conditionDescription(rule: AutomationRule): String {
 private fun RuleDialog(
     editingRule: AutomationRule?,
     allProxies: List<String>,
+    hasShownIspWarning: Boolean,
+    onIspWarningShown: () -> Unit,
     onDismiss: () -> Unit,
     onConfirm: (RuleType, String, String, Boolean) -> Unit
 ) {
@@ -400,6 +404,23 @@ private fun RuleDialog(
     var selectedProxy by remember { mutableStateOf(editingRule?.targetProxy ?: allProxies.firstOrNull() ?: "") }
     var proxyDropdownExpanded by remember { mutableStateOf(false) }
     var negate by remember { mutableStateOf(editingRule?.negate ?: false) }
+    var showIspWarning by remember { mutableStateOf(false) }
+
+    if (showIspWarning) {
+        AlertDialog(
+            onDismissRequest = { showIspWarning = false },
+            title = { Text("注意事项", fontWeight = FontWeight.Bold) },
+            text = { Text("获取ISP依赖ip-api接口，请确保该接口(ip-api.com)走**直连**，否则可能导致ISP识别错误。") },
+            confirmButton = {
+                TextButton(onClick = { 
+                    showIspWarning = false
+                    onIspWarningShown()
+                }) {
+                    Text("知道了")
+                }
+            }
+        )
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -425,6 +446,9 @@ private fun RuleDialog(
                         FilterChip(
                             selected = selectedType == type,
                             onClick = {
+                                if (type == RuleType.CARRIER && !hasShownIspWarning && selectedType != RuleType.CARRIER) {
+                                    showIspWarning = true
+                                }
                                 selectedType = type
                                 condition = ""
                             },
