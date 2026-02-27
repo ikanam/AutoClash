@@ -99,8 +99,11 @@ class RuleEngine(private val context: Context) {
                 return
             }
 
-            val currentSsid = getCurrentSsid()
-            val currentCarrier = getCurrentCarrier()
+            val hasWlanRules = rules.any { it.ruleType == RuleType.WLAN }
+            val hasCarrierRules = rules.any { it.ruleType == RuleType.CARRIER }
+
+            val currentSsid = if (hasWlanRules) getCurrentSsid() else null
+            val currentCarrier = if (hasCarrierRules) getCurrentCarrier() else null
 
             Log.i(TAG, "当前环境: SSID=[$currentSsid], 运营商=[$currentCarrier]")
 
