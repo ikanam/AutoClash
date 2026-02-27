@@ -186,7 +186,7 @@ class RuleEngine(private val context: Context) {
      */
     private fun getCurrentCarrier(): String? {
         return try {
-            val url = java.net.URL("http://ip-api.com/json/?fields=isp&lang=zh-CN")
+            val url = java.net.URL("http://ip-api.com/json/?fields=isp")
             val connection = url.openConnection() as java.net.HttpURLConnection
             connection.connectTimeout = 5000
             connection.readTimeout = 5000
@@ -196,10 +196,11 @@ class RuleEngine(private val context: Context) {
             if (responseCode == 200) {
                 val body = connection.inputStream.bufferedReader().readText()
                 connection.disconnect()
-                // Response: {"isp":"中国电信"}
+                // Response: {"isp":"China Telecom"}
                 val isp = org.json.JSONObject(body).optString("isp", "")
-                Log.i(TAG, "当前网络 ISP: [$isp]")
-                isp.takeIf { it.isNotBlank() }
+                val carrier = normalizeCarrier(isp)
+                Log.i(TAG, "当前网络 ISP: [$isp] -> 运营商: [$carrier]")
+                carrier.takeIf { it.isNotBlank() }
             } else {
                 connection.disconnect()
                 Log.w(TAG, "IP lookup failed: HTTP $responseCode")
@@ -208,6 +209,22 @@ class RuleEngine(private val context: Context) {
         } catch (e: Exception) {
             Log.e(TAG, "Error detecting ISP via IP lookup", e)
             null
+        }
+    }
+
+    /**
+     * Normalize English ISP name from ip-api.com to canonical carrier name.
+     * - 电信: Chinanet / China Telecom
+     * - 移动: China Mobile
+     * - 联通: China Unicom
+     */
+    private fun normalizeCarrier(isp: String): String {
+        return when {
+            isp.contains("Chinanet", ignoreCase = true) ||
+            isp.contains("China Telecom", ignoreCase = true) -> "中国电信"
+            isp.contains("China Mobile", ignoreCase = true) -> "中国移动"
+            isp.contains("China Unicom", ignoreCase = true) -> "中国联通"
+            else -> isp
         }
     }
 }
