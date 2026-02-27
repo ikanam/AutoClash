@@ -382,7 +382,7 @@ private fun conditionDescription(rule: AutomationRule): String {
     val prefix = if (rule.negate) "非 " else ""
     return when (rule.ruleType) {
         RuleType.WLAN -> "WiFi: ${prefix}${rule.condition}"
-        RuleType.CARRIER -> "运营商: ${prefix}${rule.condition}"
+        RuleType.CARRIER -> "ISP: ${prefix}${rule.condition}"
     }
 }
 
@@ -432,7 +432,7 @@ private fun RuleDialog(
                                 Text(
                                     when (type) {
                                         RuleType.WLAN -> "WiFi"
-                                        RuleType.CARRIER -> "运营商"
+                                        RuleType.CARRIER -> "ISP"
                                     },
                                     fontSize = 13.sp
                                 )
@@ -452,29 +452,55 @@ private fun RuleDialog(
                 }
 
                 // Condition input
-                OutlinedTextField(
-                    value = condition,
-                    onValueChange = { condition = it },
-                    label = {
-                        Text(
-                            when (selectedType) {
-                                RuleType.WLAN -> "WiFi 名称 (SSID)"
-                                RuleType.CARRIER -> "运营商 (中国电信/中国联通/中国移动)"
-                            }
+                if (selectedType == RuleType.WLAN) {
+                    OutlinedTextField(
+                        value = condition,
+                        onValueChange = { condition = it },
+                        label = { Text("WiFi 名称 (SSID)") },
+                        placeholder = { Text("MyWiFi") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        shape = RoundedCornerShape(12.dp)
+                    )
+                } else {
+                    // ISP (CARRIER) — dropdown selector
+                    val ispOptions = listOf("中国电信", "中国联通", "中国移动")
+                    var ispExpanded by remember { mutableStateOf(false) }
+                    // Pre-select first option if condition is empty
+                    if (condition.isEmpty()) condition = ispOptions[0]
+
+                    ExposedDropdownMenuBox(
+                        expanded = ispExpanded,
+                        onExpandedChange = { ispExpanded = it },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        OutlinedTextField(
+                            value = condition,
+                            onValueChange = {},
+                            readOnly = true,
+                            label = { Text("ISP") },
+                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = ispExpanded) },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .menuAnchor(),
+                            shape = RoundedCornerShape(12.dp)
                         )
-                    },
-                    placeholder = {
-                        Text(
-                            when (selectedType) {
-                                RuleType.WLAN -> "MyWiFi"
-                                RuleType.CARRIER -> "中国电信"
+                        ExposedDropdownMenu(
+                            expanded = ispExpanded,
+                            onDismissRequest = { ispExpanded = false }
+                        ) {
+                            ispOptions.forEach { isp ->
+                                DropdownMenuItem(
+                                    text = { Text(isp) },
+                                    onClick = {
+                                        condition = isp
+                                        ispExpanded = false
+                                    }
+                                )
                             }
-                        )
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true,
-                    shape = RoundedCornerShape(12.dp)
-                )
+                        }
+                    }
+                }
 
                 // Negate checkbox
                 Row(
