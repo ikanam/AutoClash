@@ -1,6 +1,8 @@
 package top.jarman.autoclash.ui.viewmodel
 
 import android.app.Application
+import android.content.Intent
+import android.os.Build
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -11,6 +13,7 @@ import kotlinx.coroutines.launch
 import top.jarman.autoclash.data.api.ApiClient
 import top.jarman.autoclash.data.repository.MihomoRepository
 import top.jarman.autoclash.data.repository.SettingsRepository
+import top.jarman.autoclash.service.AutomationService
 
 data class SettingsUiState(
     val baseUrl: String = "",
@@ -38,6 +41,28 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
                 baseUrl = url,
                 secret = secret
             )
+            // Auto-connect if there's a saved API URL
+            if (url.isNotBlank()) {
+                autoConnect(url, secret)
+            }
+        }
+    }
+
+    private suspend fun autoConnect(url: String, secret: String) {
+        _uiState.value = _uiState.value.copy(connectionStatus = ConnectionStatus.TESTING)
+        try {
+            val api = ApiClient.getApi(url, secret)
+            val repo = MihomoRepository(api)
+            val result = repo.testConnection()
+            val connected = result.isSuccess
+            _uiState.value = _uiState.value.copy(
+                connectionStatus = if (connected) ConnectionStatus.SUCCESS else ConnectionStatus.FAILED
+            )
+            if (connected) {
+                ensureServiceRunning()
+            }
+        } catch (e: Exception) {
+            _uiState.value = _uiState.value.copy(connectionStatus = ConnectionStatus.FAILED)
         }
     }
 
@@ -61,9 +86,13 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
                 val api = ApiClient.getApi(state.baseUrl, state.secret)
                 val repo = MihomoRepository(api)
                 val result = repo.testConnection()
+                val connected = result.isSuccess
                 _uiState.value = _uiState.value.copy(
-                    connectionStatus = if (result.isSuccess) ConnectionStatus.SUCCESS else ConnectionStatus.FAILED
+                    connectionStatus = if (connected) ConnectionStatus.SUCCESS else ConnectionStatus.FAILED
                 )
+                if (connected) {
+                    ensureServiceRunning()
+                }
             } catch (e: Exception) {
                 _uiState.value = _uiState.value.copy(connectionStatus = ConnectionStatus.FAILED)
             }
@@ -72,5 +101,17 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
 
     fun setServiceRunning(running: Boolean) {
         _uiState.value = _uiState.value.copy(isServiceRunning = running)
+    }
+
+    private fun ensureServiceRunning() {
+        if (_uiState.value.isServiceRunning) return
+        val context = getApplication<Application>()
+        val intent = Intent(context, AutomationService::class.java)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            context.startForegroundService(intent)
+        } else {
+            context.startService(intent)
+        }
+        _uiState.value = _uiState.value.copy(isServiceRunning = true)
     }
 }
