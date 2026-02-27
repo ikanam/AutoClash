@@ -97,7 +97,7 @@ fun SettingsScreen(
                         value = uiState.baseUrl,
                         onValueChange = viewModel::updateBaseUrl,
                         label = { Text("API 地址") },
-                        placeholder = { Text("http://192.168.1.1:9090") },
+                        placeholder = { Text("http://127.0.0.1:9090") },
                         leadingIcon = { Icon(Icons.Default.Link, contentDescription = null) },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true,

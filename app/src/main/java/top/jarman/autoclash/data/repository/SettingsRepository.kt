@@ -22,7 +22,7 @@ class SettingsRepository(private val context: Context) {
     }
 
     val apiBaseUrl: Flow<String> = context.settingsDataStore.data.map { prefs ->
-        prefs[KEY_API_BASE_URL] ?: ""
+        prefs[KEY_API_BASE_URL] ?: "http://127.0.0.1:9090"
     }
 
     val apiSecret: Flow<String> = context.settingsDataStore.data.map { prefs ->
