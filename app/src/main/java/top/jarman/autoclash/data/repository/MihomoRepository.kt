@@ -7,17 +7,28 @@ import top.jarman.autoclash.data.api.SwitchProxyRequest
 class MihomoRepository(private val api: MihomoApi) {
 
     /**
-     * Get all Selector-type proxy groups
+     * Get all Selector-type proxy groups, ordered by config file order
      */
     suspend fun getSelectGroups(): Result<List<ProxyDetail>> {
         return try {
             val response = api.getProxies()
             if (response.isSuccessful) {
                 val proxies = response.body()?.proxies ?: emptyMap()
+
+                // Use GLOBAL group's "all" list to determine config order
+                val globalOrder = proxies["GLOBAL"]?.all ?: emptyList()
+
                 val selectGroups = proxies.values.filter {
-                    it.type.equals("Selector", ignoreCase = true)
+                    it.type.equals("Selector", ignoreCase = true) && it.name != "GLOBAL"
                 }
-                Result.success(selectGroups)
+
+                // Sort by position in GLOBAL's all list; unknown items go to end
+                val sorted = selectGroups.sortedBy { group ->
+                    val index = globalOrder.indexOf(group.name)
+                    if (index >= 0) index else Int.MAX_VALUE
+                }
+
+                Result.success(sorted)
             } else {
                 Result.failure(Exception("API error: ${response.code()} ${response.message()}"))
             }

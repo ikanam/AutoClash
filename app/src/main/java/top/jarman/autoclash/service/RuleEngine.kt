@@ -100,11 +100,23 @@ class RuleEngine(private val context: Context) {
             val baseUrl = settingsRepo.apiBaseUrl.first()
             val secret = settingsRepo.apiSecret.first()
 
-            if (baseUrl.isBlank()) return
+            if (baseUrl.isBlank()) {
+                Log.w(TAG, "[${type.displayName}] API not configured, skip")
+                return
+            }
 
             val api = ApiClient.getApi(baseUrl, secret)
             val repo = MihomoRepository(api)
-            val rules = ruleRepo.rules.first().filter { it.enabled && it.ruleType == type }
+            val allRules = ruleRepo.rules.first()
+            val rules = allRules.filter { it.enabled && it.ruleType == type }
+
+            Log.i(TAG, "========== 开始评估 ${type.displayName} 规则 ==========")
+            Log.i(TAG, "总规则数: ${allRules.size}, ${type.displayName} 启用规则数: ${rules.size}")
+
+            if (rules.isEmpty()) {
+                Log.i(TAG, "没有启用的 ${type.displayName} 规则，跳过")
+                return
+            }
 
             val currentSsid = getCurrentSsid()
             val currentCarrier = getCurrentCarrier()
@@ -114,18 +126,42 @@ class RuleEngine(private val context: Context) {
                 null
             }
 
+            Log.i(TAG, "当前环境: SSID=[$currentSsid], 运营商=[$currentCarrier], 时间=[$currentTime]")
+
             for (rule in rules) {
+                Log.d(TAG, "检查规则: type=${rule.ruleType}, condition=[${rule.condition}], group=${rule.groupName}, target=${rule.targetProxy}")
+
                 val matches = when (type) {
-                    RuleType.WLAN -> currentSsid != null && currentSsid == rule.condition
-                    RuleType.CARRIER -> currentCarrier != null && currentCarrier.contains(rule.condition, ignoreCase = true)
-                    RuleType.TIME -> currentTime != null && isInTimeRange(currentTime, rule.condition)
+                    RuleType.WLAN -> {
+                        val result = currentSsid != null && currentSsid == rule.condition
+                        Log.d(TAG, "  WLAN匹配: 当前SSID=[$currentSsid] vs 规则条件=[${rule.condition}] -> $result")
+                        result
+                    }
+                    RuleType.CARRIER -> {
+                        val result = currentCarrier != null && currentCarrier.contains(rule.condition, ignoreCase = true)
+                        Log.d(TAG, "  运营商匹配: 当前运营商=[$currentCarrier] vs 规则条件=[${rule.condition}] -> $result")
+                        result
+                    }
+                    RuleType.TIME -> {
+                        val result = currentTime != null && isInTimeRange(currentTime, rule.condition)
+                        Log.d(TAG, "  时间匹配: 当前时间=[$currentTime] vs 规则条件=[${rule.condition}] -> $result")
+                        result
+                    }
                 }
 
                 if (matches) {
-                    Log.i(TAG, "Rule matched: ${type.displayName} [${rule.condition}] -> ${rule.groupName}/${rule.targetProxy}")
-                    repo.switchProxy(rule.groupName, rule.targetProxy)
+                    Log.i(TAG, "✅ 规则命中! 切换 [${rule.groupName}] -> [${rule.targetProxy}]")
+                    val result = repo.switchProxy(rule.groupName, rule.targetProxy)
+                    if (result.isSuccess) {
+                        Log.i(TAG, "✅ 切换成功: ${rule.groupName} -> ${rule.targetProxy}")
+                    } else {
+                        Log.e(TAG, "❌ 切换失败: ${result.exceptionOrNull()?.message}")
+                    }
+                } else {
+                    Log.d(TAG, "  ❌ 规则未命中")
                 }
             }
+            Log.i(TAG, "========== ${type.displayName} 规则评估完毕 ==========")
         } catch (e: Exception) {
             Log.e(TAG, "Error evaluating $type rules", e)
         }
@@ -136,9 +172,17 @@ class RuleEngine(private val context: Context) {
         return try {
             val wifiManager = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
             val info = wifiManager.connectionInfo
-            val ssid = info.ssid
-            if (ssid == null || ssid == "<unknown ssid>" || ssid == "0x") null
-            else ssid.removePrefix("\"").removeSuffix("\"")
+            val rawSsid = info.ssid
+            Log.d(TAG, "WiFi connectionInfo: ssid=[$rawSsid], networkId=${info.networkId}, supplicantState=${info.supplicantState}")
+
+            if (rawSsid == null || rawSsid == "<unknown ssid>" || rawSsid == "0x") {
+                Log.w(TAG, "SSID 无法获取 (rawSsid=[$rawSsid])，可能需要授予位置权限")
+                null
+            } else {
+                val cleanSsid = rawSsid.removePrefix("\"").removeSuffix("\"")
+                Log.i(TAG, "当前 WiFi SSID: [$cleanSsid]")
+                cleanSsid
+            }
         } catch (e: Exception) {
             Log.e(TAG, "Error getting SSID", e)
             null
