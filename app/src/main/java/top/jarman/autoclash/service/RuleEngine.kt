@@ -1,20 +1,15 @@
 package top.jarman.autoclash.service
 
 import android.content.Context
-import android.net.ConnectivityManager
-import android.net.NetworkCapabilities
-import android.telephony.TelephonyManager
 import android.net.wifi.WifiManager
+import android.telephony.TelephonyManager
 import android.util.Log
 import kotlinx.coroutines.flow.first
 import top.jarman.autoclash.data.api.ApiClient
-import top.jarman.autoclash.data.model.AutomationRule
 import top.jarman.autoclash.data.model.RuleType
 import top.jarman.autoclash.data.repository.MihomoRepository
 import top.jarman.autoclash.data.repository.RuleRepository
 import top.jarman.autoclash.data.repository.SettingsRepository
-import java.time.LocalTime
-import java.time.format.DateTimeFormatter
 
 class RuleEngine(private val context: Context) {
 
@@ -44,19 +39,13 @@ class RuleEngine(private val context: Context) {
 
             val currentSsid = getCurrentSsid()
             val currentCarrier = getCurrentCarrier()
-            val currentTime = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-                LocalTime.now()
-            } else {
-                null
-            }
 
-            Log.d(TAG, "Evaluating ${rules.size} rules. SSID=$currentSsid, Carrier=$currentCarrier, Time=$currentTime")
+            Log.d(TAG, "Evaluating ${rules.size} rules. SSID=$currentSsid, Carrier=$currentCarrier")
 
             for (rule in rules) {
                 val matches = when (rule.ruleType) {
                     RuleType.WLAN -> currentSsid != null && currentSsid == rule.condition
                     RuleType.CARRIER -> currentCarrier != null && currentCarrier.contains(rule.condition, ignoreCase = true)
-                    RuleType.TIME -> currentTime != null && isInTimeRange(currentTime, rule.condition)
                 }
 
                 if (matches) {
@@ -88,13 +77,6 @@ class RuleEngine(private val context: Context) {
         evaluateRulesByType(RuleType.CARRIER)
     }
 
-    /**
-     * Evaluate only TIME rules (triggered by alarm)
-     */
-    suspend fun evaluateTimeRules() {
-        evaluateRulesByType(RuleType.TIME)
-    }
-
     private suspend fun evaluateRulesByType(type: RuleType) {
         try {
             val baseUrl = settingsRepo.apiBaseUrl.first()
@@ -120,13 +102,8 @@ class RuleEngine(private val context: Context) {
 
             val currentSsid = getCurrentSsid()
             val currentCarrier = getCurrentCarrier()
-            val currentTime = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-                LocalTime.now()
-            } else {
-                null
-            }
 
-            Log.i(TAG, "当前环境: SSID=[$currentSsid], 运营商=[$currentCarrier], 时间=[$currentTime]")
+            Log.i(TAG, "当前环境: SSID=[$currentSsid], 运营商=[$currentCarrier]")
 
             for (rule in rules) {
                 Log.d(TAG, "检查规则: type=${rule.ruleType}, condition=[${rule.condition}], group=${rule.groupName}, target=${rule.targetProxy}")
@@ -140,11 +117,6 @@ class RuleEngine(private val context: Context) {
                     RuleType.CARRIER -> {
                         val result = currentCarrier != null && currentCarrier.contains(rule.condition, ignoreCase = true)
                         Log.d(TAG, "  运营商匹配: 当前运营商=[$currentCarrier] vs 规则条件=[${rule.condition}] -> $result")
-                        result
-                    }
-                    RuleType.TIME -> {
-                        val result = currentTime != null && isInTimeRange(currentTime, rule.condition)
-                        Log.d(TAG, "  时间匹配: 当前时间=[$currentTime] vs 规则条件=[${rule.condition}] -> $result")
                         result
                     }
                 }
@@ -196,27 +168,6 @@ class RuleEngine(private val context: Context) {
         } catch (e: Exception) {
             Log.e(TAG, "Error getting carrier", e)
             null
-        }
-    }
-
-    private fun isInTimeRange(now: LocalTime, rangeStr: String): Boolean {
-        return try {
-            if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.O) return false
-            val parts = rangeStr.split("-")
-            if (parts.size != 2) return false
-            val formatter = DateTimeFormatter.ofPattern("HH:mm")
-            val start = LocalTime.parse(parts[0].trim(), formatter)
-            val end = LocalTime.parse(parts[1].trim(), formatter)
-
-            if (start <= end) {
-                now in start..end
-            } else {
-                // Crosses midnight (e.g., 22:00-06:00)
-                now >= start || now <= end
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Error parsing time range: $rangeStr", e)
-            false
         }
     }
 }

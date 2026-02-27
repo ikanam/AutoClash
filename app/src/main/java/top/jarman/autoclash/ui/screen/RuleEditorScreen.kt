@@ -185,7 +185,6 @@ private fun RuleCard(
 ) {
     val (icon, color) = when (rule.ruleType) {
         RuleType.WLAN -> Icons.Default.Wifi to MaterialTheme.colorScheme.secondary
-        RuleType.TIME -> Icons.Default.Schedule to MaterialTheme.colorScheme.tertiary
         RuleType.CARRIER -> Icons.Default.SimCard to MaterialTheme.colorScheme.primary
     }
 
@@ -266,7 +265,6 @@ private fun RuleCard(
 private fun conditionDescription(rule: AutomationRule): String {
     return when (rule.ruleType) {
         RuleType.WLAN -> "WiFi: ${rule.condition}"
-        RuleType.TIME -> "时间: ${rule.condition}"
         RuleType.CARRIER -> "运营商: ${rule.condition}"
     }
 }
@@ -314,7 +312,6 @@ private fun AddRuleDialog(
                                 Text(
                                     when (type) {
                                         RuleType.WLAN -> "WiFi"
-                                        RuleType.TIME -> "定时"
                                         RuleType.CARRIER -> "运营商"
                                     },
                                     fontSize = 13.sp
@@ -324,7 +321,6 @@ private fun AddRuleDialog(
                                 Icon(
                                     when (type) {
                                         RuleType.WLAN -> Icons.Default.Wifi
-                                        RuleType.TIME -> Icons.Default.Schedule
                                         RuleType.CARRIER -> Icons.Default.SimCard
                                     },
                                     contentDescription = null,
@@ -343,7 +339,6 @@ private fun AddRuleDialog(
                         Text(
                             when (selectedType) {
                                 RuleType.WLAN -> "WiFi 名称 (SSID)"
-                                RuleType.TIME -> "时间范围 (例: 08:00-18:00)"
                                 RuleType.CARRIER -> "运营商 (中国电信/中国联通/中国移动)"
                             }
                         )
@@ -352,7 +347,6 @@ private fun AddRuleDialog(
                         Text(
                             when (selectedType) {
                                 RuleType.WLAN -> "MyWiFi"
-                                RuleType.TIME -> "08:00-18:00"
                                 RuleType.CARRIER -> "中国电信"
                             }
                         )

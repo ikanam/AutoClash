@@ -7,7 +7,6 @@ import java.util.UUID
  */
 enum class RuleType(val displayName: String) {
     WLAN("WLAN (WiFi)"),
-    TIME("定时切换"),
     CARRIER("运营商")
 }
 

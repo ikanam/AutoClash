@@ -1,12 +1,10 @@
 package top.jarman.autoclash.service
 
-import android.app.AlarmManager
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
-import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.net.ConnectivityManager
@@ -28,8 +26,6 @@ class AutomationService : Service() {
         private const val TAG = "AutomationService"
         private const val CHANNEL_ID = "auto_clash_service"
         private const val NOTIFICATION_ID = 1
-        private const val TIME_CHECK_INTERVAL = 60_000L // 1 minute
-        const val ACTION_TIME_CHECK = "top.jarman.autoclash.TIME_CHECK"
     }
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -45,7 +41,6 @@ class AutomationService : Service() {
         startForeground(NOTIFICATION_ID, createNotification())
 
         registerNetworkReceiver()
-        scheduleTimeChecks()
 
         // Run initial evaluation
         serviceScope.launch {
@@ -55,15 +50,6 @@ class AutomationService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         Log.d(TAG, "onStartCommand: ${intent?.action}")
-
-        when (intent?.action) {
-            ACTION_TIME_CHECK -> {
-                serviceScope.launch {
-                    ruleEngine.evaluateTimeRules()
-                }
-            }
-        }
-
         return START_STICKY
     }
 
@@ -73,7 +59,6 @@ class AutomationService : Service() {
         super.onDestroy()
         Log.d(TAG, "AutomationService destroyed")
         unregisterNetworkReceiver()
-        cancelTimeChecks()
         serviceScope.cancel()
     }
 
@@ -130,39 +115,5 @@ class AutomationService : Service() {
             }
         }
         networkReceiver = null
-    }
-
-    private fun scheduleTimeChecks() {
-        val alarmManager = getSystemService(Context.ALARM_SERVICE) as AlarmManager
-        val intent = Intent(this, TimeAlarmReceiver::class.java).apply {
-            action = ACTION_TIME_CHECK
-        }
-        val pendingIntent = PendingIntent.getBroadcast(
-            this,
-            0,
-            intent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-        alarmManager.setRepeating(
-            AlarmManager.RTC_WAKEUP,
-            System.currentTimeMillis() + TIME_CHECK_INTERVAL,
-            TIME_CHECK_INTERVAL,
-            pendingIntent
-        )
-        Log.d(TAG, "Time checks scheduled every ${TIME_CHECK_INTERVAL / 1000}s")
-    }
-
-    private fun cancelTimeChecks() {
-        val alarmManager = getSystemService(Context.ALARM_SERVICE) as AlarmManager
-        val intent = Intent(this, TimeAlarmReceiver::class.java).apply {
-            action = ACTION_TIME_CHECK
-        }
-        val pendingIntent = PendingIntent.getBroadcast(
-            this,
-            0,
-            intent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-        alarmManager.cancel(pendingIntent)
     }
 }
