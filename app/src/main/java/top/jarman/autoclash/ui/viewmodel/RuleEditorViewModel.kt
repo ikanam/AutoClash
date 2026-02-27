@@ -84,12 +84,15 @@ class RuleEditorViewModel(application: Application) : AndroidViewModel(applicati
 
     fun addRule(ruleType: RuleType, condition: String, targetProxy: String, negate: Boolean = false) {
         viewModelScope.launch {
+            val currentRules = ruleRepo.getRulesForGroup(_uiState.value.groupName).first()
+            val maxPriority = currentRules.maxOfOrNull { it.priority } ?: -1
             val rule = AutomationRule(
                 groupName = _uiState.value.groupName,
                 ruleType = ruleType,
                 condition = condition,
                 targetProxy = targetProxy,
-                negate = negate
+                negate = negate,
+                priority = maxPriority + 1
             )
             ruleRepo.addRule(rule)
             refreshRules()
@@ -112,6 +115,7 @@ class RuleEditorViewModel(application: Application) : AndroidViewModel(applicati
 
     private suspend fun refreshRules() {
         val updatedRules = ruleRepo.getRulesForGroup(_uiState.value.groupName).first()
+            .sortedBy { it.priority }
         _uiState.value = _uiState.value.copy(
             rules = updatedRules,
             showAddDialog = false,
@@ -130,6 +134,30 @@ class RuleEditorViewModel(application: Application) : AndroidViewModel(applicati
     fun deleteRule(ruleId: String) {
         viewModelScope.launch {
             ruleRepo.deleteRule(ruleId)
+            refreshRules()
+        }
+    }
+
+    fun moveRuleUp(rule: AutomationRule) {
+        viewModelScope.launch {
+            val rules = _uiState.value.rules
+            val index = rules.indexOf(rule)
+            if (index <= 0) return@launch
+            val above = rules[index - 1]
+            // Swap priorities
+            ruleRepo.updateRule(rule.copy(priority = above.priority))
+            ruleRepo.updateRule(above.copy(priority = rule.priority))
+            refreshRules()
+        }
+    }
+
+    fun reorderRules(reorderedRules: List<AutomationRule>) {
+        viewModelScope.launch {
+            reorderedRules.forEachIndexed { index, rule ->
+                if (rule.priority != index) {
+                    ruleRepo.updateRule(rule.copy(priority = index))
+                }
+            }
             refreshRules()
         }
     }

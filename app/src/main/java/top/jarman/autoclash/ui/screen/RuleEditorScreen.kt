@@ -2,9 +2,9 @@ package top.jarman.autoclash.ui.screen
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -16,10 +16,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
 import androidx.lifecycle.viewmodel.compose.viewModel
 import top.jarman.autoclash.data.model.AutomationRule
 import top.jarman.autoclash.data.model.RuleType
@@ -150,13 +154,92 @@ fun RuleEditorScreen(
                     }
                 }
 
-                items(uiState.rules, key = { it.id }) { rule ->
-                    RuleCard(
-                        rule = rule,
-                        onToggle = { viewModel.toggleRule(rule) },
-                        onDelete = { viewModel.deleteRule(rule.id) },
-                        onEdit = { viewModel.showEditDialog(rule) }
-                    )
+                // Reorderable rules list
+                item {
+                    var workingRules by remember(uiState.rules) { mutableStateOf(uiState.rules) }
+                    var draggedIndex by remember { mutableIntStateOf(-1) }
+                    var dragOffset by remember { mutableFloatStateOf(0f) }
+                    val itemHeights = remember { mutableStateMapOf<Int, Float>() }
+
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        workingRules.forEachIndexed { index, rule ->
+                            key(rule.id) {
+                                val isDragged = index == draggedIndex
+                                val currentIndex by rememberUpdatedState(index)
+
+                                Box(
+                                    modifier = Modifier
+                                        .zIndex(if (isDragged) 1f else 0f)
+                                        .onGloballyPositioned { coordinates ->
+                                            itemHeights[currentIndex] = coordinates.size.height.toFloat()
+                                        }
+                                        .graphicsLayer {
+                                            translationY = if (isDragged) dragOffset else 0f
+                                            scaleX = if (isDragged) 1.03f else 1f
+                                            scaleY = if (isDragged) 1.03f else 1f
+                                            shadowElevation = if (isDragged) 16f else 0f
+                                            alpha = if (isDragged) 0.9f else 1f
+                                        }
+                                ) {
+                                    RuleCard(
+                                        rule = rule,
+                                        index = index,
+                                        onToggle = { viewModel.toggleRule(rule) },
+                                        onDelete = { viewModel.deleteRule(rule.id) },
+                                        onEdit = { viewModel.showEditDialog(rule) },
+                                        dragHandleModifier = Modifier.pointerInput(Unit) {
+                                            detectDragGesturesAfterLongPress(
+                                                onDragStart = {
+                                                    draggedIndex = currentIndex
+                                                    dragOffset = 0f
+                                                },
+                                                onDrag = { change, dragAmount ->
+                                                    change.consume()
+                                                    dragOffset += dragAmount.y
+
+                                                    // Check if we should swap with neighbor
+                                                    val currentHeight = itemHeights[draggedIndex] ?: return@detectDragGesturesAfterLongPress
+                                                    val threshold = currentHeight / 2
+
+                                                    if (dragOffset > threshold && draggedIndex < workingRules.size - 1) {
+                                                        val nextHeight = itemHeights[draggedIndex + 1] ?: currentHeight
+                                                        workingRules = workingRules.toMutableList().apply {
+                                                            val temp = this[draggedIndex]
+                                                            this[draggedIndex] = this[draggedIndex + 1]
+                                                            this[draggedIndex + 1] = temp
+                                                        }
+                                                        dragOffset -= nextHeight + 12f
+                                                        draggedIndex++
+                                                    } else if (dragOffset < -threshold && draggedIndex > 0) {
+                                                        val prevHeight = itemHeights[draggedIndex - 1] ?: currentHeight
+                                                        workingRules = workingRules.toMutableList().apply {
+                                                            val temp = this[draggedIndex]
+                                                            this[draggedIndex] = this[draggedIndex - 1]
+                                                            this[draggedIndex - 1] = temp
+                                                        }
+                                                        dragOffset += prevHeight + 12f
+                                                        draggedIndex--
+                                                    }
+                                                },
+                                                onDragEnd = {
+                                                    viewModel.reorderRules(workingRules)
+                                                    draggedIndex = -1
+                                                    dragOffset = 0f
+                                                },
+                                                onDragCancel = {
+                                                    workingRules = uiState.rules
+                                                    draggedIndex = -1
+                                                    dragOffset = 0f
+                                                }
+                                            )
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
 
                 item {
@@ -186,9 +269,11 @@ fun RuleEditorScreen(
 @Composable
 private fun RuleCard(
     rule: AutomationRule,
+    index: Int,
     onToggle: () -> Unit,
     onDelete: () -> Unit,
-    onEdit: () -> Unit
+    onEdit: () -> Unit,
+    dragHandleModifier: Modifier = Modifier
 ) {
     val (icon, color) = when (rule.ruleType) {
         RuleType.WLAN -> Icons.Default.Wifi to MaterialTheme.colorScheme.secondary
@@ -208,9 +293,32 @@ private fun RuleCard(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(16.dp),
+                .padding(start = 4.dp, top = 12.dp, bottom = 12.dp, end = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            // Drag handle
+            Column(
+                modifier = dragHandleModifier
+                    .padding(horizontal = 8.dp, vertical = 12.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Icon(
+                    Icons.Default.DragHandle,
+                    contentDescription = "拖拽排序",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    "${index + 1}",
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                )
+            }
+
+            Spacer(modifier = Modifier.width(4.dp))
+
             Box(
                 modifier = Modifier
                     .size(44.dp)

@@ -20,5 +20,6 @@ data class AutomationRule(
     val condition: String, // WLAN: SSID name, CARRIER: ISP name
     val targetProxy: String,
     val enabled: Boolean = true,
-    val negate: Boolean = false // true = match when condition does NOT match
+    val negate: Boolean = false, // true = match when condition does NOT match
+    val priority: Int = 0 // lower number = higher priority
 )

@@ -89,7 +89,7 @@ class RuleEngine(private val context: Context) {
             val api = ApiClient.getApi(baseUrl, secret)
             val repo = MihomoRepository(api)
             val allRules = ruleRepo.rules.first()
-            val rules = allRules.filter { it.enabled && it.ruleType == type }
+            val rules = allRules.filter { it.enabled && it.ruleType == type }.sortedBy { it.priority }
 
             Log.i(TAG, "========== 开始评估 ${type.displayName} 规则 ==========")
             Log.i(TAG, "总规则数: ${allRules.size}, ${type.displayName} 启用规则数: ${rules.size}")
@@ -104,9 +104,19 @@ class RuleEngine(private val context: Context) {
 
             Log.i(TAG, "当前环境: SSID=[$currentSsid], 运营商=[$currentCarrier]")
 
+            // Group rules by proxy group, first-match-wins per group
+            val rulesByGroup = rules.groupBy { it.groupName }
+            val matchedGroups = mutableSetOf<String>()
+
             for (rule in rules) {
+                // Skip if this group already had a match
+                if (rule.groupName in matchedGroups) {
+                    Log.d(TAG, "  跳过 [${rule.groupName}] 的规则 (该组已命中)")
+                    continue
+                }
+
                 val negateLabel = if (rule.negate) " [取反]" else ""
-                Log.d(TAG, "检查规则: type=${rule.ruleType}$negateLabel, condition=[${rule.condition}], group=${rule.groupName}, target=${rule.targetProxy}")
+                Log.d(TAG, "检查规则 #${rule.priority}: type=${rule.ruleType}$negateLabel, condition=[${rule.condition}], group=${rule.groupName}, target=${rule.targetProxy}")
 
                 val rawMatch = when (type) {
                     RuleType.WLAN -> {
@@ -127,7 +137,8 @@ class RuleEngine(private val context: Context) {
                 }
 
                 if (matches) {
-                    Log.i(TAG, "✅ 规则命中! 切换 [${rule.groupName}] -> [${rule.targetProxy}]")
+                    matchedGroups.add(rule.groupName)
+                    Log.i(TAG, "✅ 规则命中! 切换 [${rule.groupName}] -> [${rule.targetProxy}] (后续该组规则将跳过)")
                     val result = repo.switchProxy(rule.groupName, rule.targetProxy)
                     if (result.isSuccess) {
                         Log.i(TAG, "✅ 切换成功: ${rule.groupName} -> ${rule.targetProxy}")
@@ -138,7 +149,7 @@ class RuleEngine(private val context: Context) {
                     Log.d(TAG, "  ❌ 规则未命中")
                 }
             }
-            Log.i(TAG, "========== ${type.displayName} 规则评估完毕 ==========")
+            Log.i(TAG, "========== ${type.displayName} 规则评估完毕 (${matchedGroups.size} 个组命中) ==========")
         } catch (e: Exception) {
             Log.e(TAG, "Error evaluating $type rules", e)
         }
