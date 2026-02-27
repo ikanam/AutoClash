@@ -1,0 +1,59 @@
+package top.jarman.autoclash.ui.navigation
+
+import androidx.compose.runtime.Composable
+import androidx.navigation.NavHostController
+import androidx.navigation.NavType
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.navArgument
+import top.jarman.autoclash.ui.screen.ProxyGroupsScreen
+import top.jarman.autoclash.ui.screen.RuleEditorScreen
+import top.jarman.autoclash.ui.screen.SettingsScreen
+
+object Routes {
+    const val SETTINGS = "settings"
+    const val PROXY_GROUPS = "proxy_groups"
+    const val RULE_EDITOR = "rule_editor/{groupName}"
+
+    fun ruleEditor(groupName: String) = "rule_editor/$groupName"
+}
+
+@Composable
+fun AppNavigation(navController: NavHostController) {
+    NavHost(
+        navController = navController,
+        startDestination = Routes.SETTINGS
+    ) {
+        composable(Routes.SETTINGS) {
+            SettingsScreen(
+                onNavigateToGroups = {
+                    navController.navigate(Routes.PROXY_GROUPS)
+                }
+            )
+        }
+
+        composable(Routes.PROXY_GROUPS) {
+            ProxyGroupsScreen(
+                onNavigateToRuleEditor = { groupName ->
+                    navController.navigate(Routes.ruleEditor(groupName))
+                },
+                onNavigateBack = {
+                    navController.popBackStack()
+                }
+            )
+        }
+
+        composable(
+            route = Routes.RULE_EDITOR,
+            arguments = listOf(navArgument("groupName") { type = NavType.StringType })
+        ) { backStackEntry ->
+            val groupName = backStackEntry.arguments?.getString("groupName") ?: ""
+            RuleEditorScreen(
+                groupName = groupName,
+                onNavigateBack = {
+                    navController.popBackStack()
+                }
+            )
+        }
+    }
+}
