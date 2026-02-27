@@ -1,5 +1,6 @@
 package top.jarman.autoclash.ui.screen
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -15,6 +16,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.painterResource
+import top.jarman.autoclash.R
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -49,11 +52,12 @@ fun PermissionRationaleScreen(
                 ),
             contentAlignment = Alignment.Center
         ) {
-            Icon(
-                Icons.Default.Hub,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onPrimary,
-                modifier = Modifier.size(40.dp)
+            Image(
+                painter = painterResource(R.drawable.ic_app_icon),
+                contentDescription = "App Icon",
+                modifier = Modifier
+                    .size(96.dp)
+                    .clip(RoundedCornerShape(22.dp))
             )
         }
 
