@@ -184,32 +184,44 @@ class RuleEngine(private val context: Context) {
      * Get current network ISP by querying public IP info.
      * Works for both WiFi and cellular - detects actual broadband provider.
      */
-    private fun getCurrentCarrier(): String? {
-        return try {
-            val url = java.net.URL("http://ip-api.com/json/?fields=isp")
-            val connection = url.openConnection() as java.net.HttpURLConnection
-            connection.connectTimeout = 5000
-            connection.readTimeout = 5000
-            connection.requestMethod = "GET"
+    private suspend fun getCurrentCarrier(): String? {
+        val maxRetries = 3
+        val retryDelayMs = 2000L
+        var attempt = 0
 
-            val responseCode = connection.responseCode
-            if (responseCode == 200) {
-                val body = connection.inputStream.bufferedReader().readText()
-                connection.disconnect()
-                // Response: {"isp":"China Telecom"}
-                val isp = org.json.JSONObject(body).optString("isp", "")
-                val carrier = normalizeCarrier(isp)
-                Log.i(TAG, "当前网络 ISP: [$isp] -> 运营商: [$carrier]")
-                carrier.takeIf { it.isNotBlank() }
-            } else {
-                connection.disconnect()
-                Log.w(TAG, "IP lookup failed: HTTP $responseCode")
-                null
+        while (attempt < maxRetries) {
+            try {
+                val url = java.net.URL("http://ip-api.com/json/?fields=isp")
+                val connection = url.openConnection() as java.net.HttpURLConnection
+                connection.connectTimeout = 5000
+                connection.readTimeout = 5000
+                connection.requestMethod = "GET"
+
+                val responseCode = connection.responseCode
+                if (responseCode == 200) {
+                    val body = connection.inputStream.bufferedReader().readText()
+                    connection.disconnect()
+                    // Response: {"isp":"China Telecom"}
+                    val isp = org.json.JSONObject(body).optString("isp", "")
+                    val carrier = normalizeCarrier(isp)
+                    Log.i(TAG, "当前网络 ISP: [$isp] -> 运营商: [$carrier]")
+                    return carrier.takeIf { it.isNotBlank() }
+                } else {
+                    connection.disconnect()
+                    Log.w(TAG, "IP lookup failed: HTTP $responseCode")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error detecting ISP via IP lookup on attempt ${attempt + 1}", e)
             }
-        } catch (e: Exception) {
-            Log.e(TAG, "Error detecting ISP via IP lookup", e)
-            null
+            
+            attempt++
+            if (attempt < maxRetries) {
+                Log.w(TAG, "ISP 检查失败，将在 ${retryDelayMs / 1000} 秒后重试 (当前重试次数: $attempt/$maxRetries)")
+                kotlinx.coroutines.delay(retryDelayMs)
+            }
         }
+        Log.e(TAG, "ISP lookup failed after $maxRetries attempts")
+        return null
     }
 
     /**
