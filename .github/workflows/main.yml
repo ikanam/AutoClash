@@ -41,6 +41,5 @@ jobs:
           # 需要上传到 Release 的文件列表
           files: |
             app/build/outputs/apk/debug/app-debug.apk
-            app/build/outputs/apk/release/app-release-unsigned.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
