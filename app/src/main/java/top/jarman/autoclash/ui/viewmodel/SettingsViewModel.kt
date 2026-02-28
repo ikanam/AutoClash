@@ -1,8 +1,11 @@
 package top.jarman.autoclash.ui.viewmodel
 
+import android.app.ActivityManager
 import android.app.Application
+import android.content.Context
 import android.content.Intent
 import android.os.Build
+import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -30,6 +33,7 @@ enum class ConnectionStatus {
 class SettingsViewModel(application: Application) : AndroidViewModel(application) {
 
     private val settingsRepo = SettingsRepository(application)
+    private var userManuallyStopped = false
 
     private val _uiState = MutableStateFlow(SettingsUiState())
     val uiState: StateFlow<SettingsUiState> = _uiState.asStateFlow()
@@ -72,13 +76,14 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
             val result = repo.testConnection()
             val connected = result.isSuccess
             _uiState.value = _uiState.value.copy(
-                connectionStatus = if (connected) ConnectionStatus.SUCCESS else ConnectionStatus.FAILED
+                connectionStatus = if (connected) ConnectionStatus.SUCCESS else ConnectionStatus.FAILED,
+                isServiceRunning = if (connected) isServiceRunning() else false
             )
             if (connected) {
                 ensureServiceRunning()
             }
         } catch (e: Exception) {
-            _uiState.value = _uiState.value.copy(connectionStatus = ConnectionStatus.FAILED)
+            _uiState.value = _uiState.value.copy(connectionStatus = ConnectionStatus.FAILED, isServiceRunning = false)
         }
     }
 
@@ -116,18 +121,39 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun setServiceRunning(running: Boolean) {
+        if (!running && _uiState.value.isServiceRunning) {
+            userManuallyStopped = true
+        }
         _uiState.value = _uiState.value.copy(isServiceRunning = running)
     }
 
     private fun ensureServiceRunning() {
-        if (_uiState.value.isServiceRunning) return
+        // Don't auto-start if user manually stopped the service
+        if (userManuallyStopped) {
+            Log.d("SettingsViewModel", "Service auto-start skipped: user manually stopped")
+            return
+        }
+        if (isServiceRunning()) return
         val context = getApplication<Application>()
         val intent = Intent(context, AutomationService::class.java)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            context.startForegroundService(intent)
-        } else {
-            context.startService(intent)
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                context.startForegroundService(intent)
+            } else {
+                context.startService(intent)
+            }
+            _uiState.value = _uiState.value.copy(isServiceRunning = true)
+        } catch (e: Exception) {
+            // Service may have been killed or context is invalid
+            // This can happen when the app is in background during network changes
+            Log.e("SettingsViewModel", "Failed to start foreground service", e)
         }
-        _uiState.value = _uiState.value.copy(isServiceRunning = true)
+    }
+
+    private fun isServiceRunning(): Boolean {
+        val context = getApplication<Application>()
+        val activityManager = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+        val services = activityManager.getRunningServices(Integer.MAX_VALUE)
+        return services.any { it.service.className == AutomationService::class.java.name }
     }
 }
