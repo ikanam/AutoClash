@@ -10,6 +10,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import top.jarman.autoclash.data.repository.LogRepository
+import top.jarman.autoclash.data.repository.LogLevel
 
 class NetworkReceiver : BroadcastReceiver() {
 
@@ -18,21 +20,35 @@ class NetworkReceiver : BroadcastReceiver() {
     }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private var logRepository: LogRepository? = null
 
     @Suppress("deprecation")
     override fun onReceive(context: Context, intent: Intent) {
         Log.d(TAG, "Network change detected: ${intent.action}")
+
+        // Initialize log repository lazily
+        if (logRepository == null) {
+            logRepository = LogRepository(context.applicationContext)
+        }
 
         val ruleEngine = RuleEngine(context.applicationContext)
 
         when (intent.action) {
             WifiManager.NETWORK_STATE_CHANGED_ACTION -> {
                 scope.launch {
+                    // Log WiFi network change
+                    val actionText = when {
+                        intent.getBooleanExtra(WifiManager.EXTRA_NETWORK_INFO, false) -> "WiFi 状态变化"
+                        else -> "WiFi 网络变化"
+                    }
+                    logRepository?.i(TAG, "检测到 $actionText")
+
                     ruleEngine.evaluateWlanRules()
                 }
             }
             ConnectivityManager.CONNECTIVITY_ACTION -> {
                 scope.launch {
+                    logRepository?.i(TAG, "检测到移动网络变化")
                     ruleEngine.evaluateCarrierRules()
                 }
             }

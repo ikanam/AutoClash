@@ -6,6 +6,8 @@ import android.util.Log
 import kotlinx.coroutines.flow.first
 import top.jarman.autoclash.data.api.ApiClient
 import top.jarman.autoclash.data.model.RuleType
+import top.jarman.autoclash.data.repository.LogLevel
+import top.jarman.autoclash.data.repository.LogRepository
 import top.jarman.autoclash.data.repository.MihomoRepository
 import top.jarman.autoclash.data.repository.RuleRepository
 import top.jarman.autoclash.data.repository.SettingsRepository
@@ -18,6 +20,7 @@ class RuleEngine(private val context: Context) {
 
     private val settingsRepo = SettingsRepository(context)
     private val ruleRepo = RuleRepository(context)
+    private val logRepo = LogRepository(context)
 
     /**
      * Evaluate all enabled rules and execute matching ones
@@ -86,16 +89,24 @@ class RuleEngine(private val context: Context) {
                 return
             }
 
+            // Check if logging is enabled
+            val isLoggingEnabled = logRepo.isLogEnabled()
+
             val api = ApiClient.getApi(baseUrl, secret)
             val repo = MihomoRepository(api)
             val allRules = ruleRepo.rules.first()
             val rules = allRules.filter { it.enabled && it.ruleType == type }.sortedBy { it.priority }
 
             Log.i(TAG, "========== 开始评估 ${type.displayName} 规则 ==========")
-            Log.i(TAG, "总规则数: ${allRules.size}, ${type.displayName} 启用规则数: ${rules.size}")
+            if (isLoggingEnabled) {
+                logRepo.i(TAG, "开始评估 ${type.displayName} 规则，总规则数: ${allRules.size}, 启用规则数: ${rules.size}")
+            }
 
             if (rules.isEmpty()) {
                 Log.i(TAG, "没有启用的 ${type.displayName} 规则，跳过")
+                if (isLoggingEnabled) {
+                    logRepo.i(TAG, "没有启用的 ${type.displayName} 规则，跳过评估")
+                }
                 return
             }
 
@@ -106,6 +117,9 @@ class RuleEngine(private val context: Context) {
             val currentCarrier = if (hasCarrierRules) getCurrentCarrier() else null
 
             Log.i(TAG, "当前环境: SSID=[$currentSsid], 运营商=[$currentCarrier]")
+            if (isLoggingEnabled) {
+                logRepo.i(TAG, "当前环境 - SSID: [$currentSsid], 运营商: [$currentCarrier]")
+            }
 
             // Group rules by proxy group, first-match-wins per group
             val rulesByGroup = rules.groupBy { it.groupName }
@@ -145,14 +159,23 @@ class RuleEngine(private val context: Context) {
                     val result = repo.switchProxy(rule.groupName, rule.targetProxy)
                     if (result.isSuccess) {
                         Log.i(TAG, "✅ 切换成功: ${rule.groupName} -> ${rule.targetProxy}")
+                        if (isLoggingEnabled) {
+                            logRepo.i(TAG, "✅ 策略组切换成功: ${rule.groupName} -> ${rule.targetProxy}")
+                        }
                     } else {
                         Log.e(TAG, "❌ 切换失败: ${result.exceptionOrNull()?.message}")
+                        if (isLoggingEnabled) {
+                            logRepo.e(TAG, "❌ 策略组切换失败: ${rule.groupName} -> ${rule.targetProxy}, 错误: ${result.exceptionOrNull()?.message}")
+                        }
                     }
                 } else {
                     Log.d(TAG, "  ❌ 规则未命中")
                 }
             }
             Log.i(TAG, "========== ${type.displayName} 规则评估完毕 (${matchedGroups.size} 个组命中) ==========")
+            if (isLoggingEnabled) {
+                logRepo.i(TAG, "${type.displayName} 规则评估完毕，${matchedGroups.size} 个策略组已切换")
+            }
         } catch (e: Exception) {
             Log.e(TAG, "Error evaluating $type rules", e)
         }

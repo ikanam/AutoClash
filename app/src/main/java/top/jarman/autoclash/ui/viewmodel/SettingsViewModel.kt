@@ -23,7 +23,8 @@ data class SettingsUiState(
     val secret: String = "",
     val connectionStatus: ConnectionStatus = ConnectionStatus.IDLE,
     val isServiceRunning: Boolean = false,
-    val showNotification: Boolean = true
+    val showNotification: Boolean = true,
+    val logEnabled: Boolean = true
 )
 
 enum class ConnectionStatus {
@@ -43,10 +44,12 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
             val url = settingsRepo.apiBaseUrl.first()
             val secret = settingsRepo.apiSecret.first()
             val showNotif = settingsRepo.showNotification.first()
+            val logEnabled = settingsRepo.logEnabled.first()
             _uiState.value = _uiState.value.copy(
                 baseUrl = url,
                 secret = secret,
-                showNotification = showNotif
+                showNotification = showNotif,
+                logEnabled = logEnabled
             )
             // Auto-connect if there's a saved API URL
             if (url.isNotBlank()) {
@@ -59,12 +62,25 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
                     _uiState.value = _uiState.value.copy(showNotification = show)
                 }
             }
+
+            // Keep log enabled state updated
+            launch {
+                settingsRepo.logEnabled.collect { enabled ->
+                    _uiState.value = _uiState.value.copy(logEnabled = enabled)
+                }
+            }
         }
     }
 
     fun toggleNotification(show: Boolean) {
         viewModelScope.launch {
             settingsRepo.setShowNotification(show)
+        }
+    }
+
+    fun toggleLogEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            settingsRepo.setLogEnabled(enabled)
         }
     }
 

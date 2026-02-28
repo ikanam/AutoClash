@@ -19,6 +19,7 @@ class SettingsRepository(private val context: Context) {
         private val KEY_API_SECRET = stringPreferencesKey("api_secret")
         private val KEY_SHOW_NOTIFICATION = booleanPreferencesKey("show_notification")
         private val KEY_HAS_SHOWN_ISP_WARNING = booleanPreferencesKey("has_shown_isp_warning")
+        private val KEY_LOG_ENABLED = booleanPreferencesKey("log_enabled")
     }
 
     val apiBaseUrl: Flow<String> = context.settingsDataStore.data.map { prefs ->
@@ -37,6 +38,10 @@ class SettingsRepository(private val context: Context) {
         prefs[KEY_HAS_SHOWN_ISP_WARNING] ?: false
     }
 
+    val logEnabled: Flow<Boolean> = context.settingsDataStore.data.map { prefs ->
+        prefs[KEY_LOG_ENABLED] ?: true
+    }
+
     suspend fun saveApiConfig(baseUrl: String, secret: String) {
         context.settingsDataStore.edit { prefs ->
             prefs[KEY_API_BASE_URL] = baseUrl
@@ -53,6 +58,12 @@ class SettingsRepository(private val context: Context) {
     suspend fun setHasShownIspWarning(shown: Boolean) {
         context.settingsDataStore.edit { prefs ->
             prefs[KEY_HAS_SHOWN_ISP_WARNING] = shown
+        }
+    }
+
+    suspend fun setLogEnabled(enabled: Boolean) {
+        context.settingsDataStore.edit { prefs ->
+            prefs[KEY_LOG_ENABLED] = enabled
         }
     }
 }

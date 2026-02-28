@@ -18,6 +18,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import top.jarman.autoclash.data.repository.LogRepository
 import top.jarman.autoclash.ui.MainActivity
 
 class AutomationService : Service() {
@@ -35,6 +36,15 @@ class AutomationService : Service() {
     override fun onCreate() {
         super.onCreate()
         Log.d(TAG, "AutomationService created")
+
+        // Log service start
+        val logRepo = LogRepository(applicationContext)
+        kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            if (logRepo.isLogEnabled()) {
+                logRepo.i(TAG, "自动化服务已启动")
+            }
+        }
+
         ruleEngine = RuleEngine(applicationContext)
 
         createNotificationChannel()
@@ -81,6 +91,15 @@ class AutomationService : Service() {
     override fun onDestroy() {
         super.onDestroy()
         Log.d(TAG, "AutomationService destroyed")
+
+        // Log service stop
+        val logRepo = LogRepository(applicationContext)
+        kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            if (logRepo.isLogEnabled()) {
+                logRepo.i(TAG, "自动化服务已停止")
+            }
+        }
+
         unregisterNetworkReceiver()
         serviceScope.cancel()
     }

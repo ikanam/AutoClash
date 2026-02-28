@@ -29,7 +29,10 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.FileProvider
+import java.io.File
 import androidx.lifecycle.viewmodel.compose.viewModel
+import top.jarman.autoclash.data.repository.LogRepository
 import top.jarman.autoclash.service.AutomationService
 import top.jarman.autoclash.ui.viewmodel.ConnectionStatus
 import top.jarman.autoclash.ui.viewmodel.SettingsViewModel
@@ -312,6 +315,81 @@ fun SettingsScreen(
                 }
             }
 
+            // Log Settings Card
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                )
+            ) {
+                Column(
+                    modifier = Modifier.padding(20.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Text(
+                        "日志记录",
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 16.sp
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            Icons.Default.Description,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(24.dp)
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Text(
+                            "启用日志记录",
+                            modifier = Modifier.weight(1f)
+                        )
+                        Switch(
+                            checked = uiState.logEnabled,
+                            onCheckedChange = { viewModel.toggleLogEnabled(it) }
+                        )
+                    }
+
+                    Text(
+                        "记录网络切换、策略组切换等运行信息",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 13.sp
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = { shareLogs(context) },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Icon(Icons.Default.Share, contentDescription = null)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("分享日志")
+                        }
+
+                        OutlinedButton(
+                            onClick = { clearLogs(context) },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                contentColor = MaterialTheme.colorScheme.error
+                            )
+                        ) {
+                            Icon(Icons.Default.Delete, contentDescription = null)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("清除日志")
+                        }
+                    }
+                }
+            }
+
             Spacer(modifier = Modifier.height(24.dp))
         }
     }
@@ -336,4 +414,52 @@ private fun startAutomationService(context: Context) {
 private fun stopAutomationService(context: Context) {
     val intent = Intent(context, AutomationService::class.java)
     context.stopService(intent)
+}
+
+private fun shareLogs(context: Context) {
+    try {
+        val logRepo = LogRepository(context)
+        val logs = logRepo.getAllLogs()
+
+        if (logs.isBlank()) {
+            android.widget.Toast.makeText(context, "暂无日志", android.widget.Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        // Write logs to a temporary file
+        val cacheDir = File(context.cacheDir, "logs_cache")
+        if (!cacheDir.exists()) {
+            cacheDir.mkdirs()
+        }
+        val logFile = File(cacheDir, "autoclash_logs.txt")
+        logFile.writeText(logs)
+
+        // Share via FileProvider
+        val uri = FileProvider.getUriForFile(
+            context,
+            "${context.packageName}.fileprovider",
+            logFile
+        )
+
+        val shareIntent = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_STREAM, uri)
+            putExtra(Intent.EXTRA_SUBJECT, "AutoClash 日志")
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+
+        context.startActivity(Intent.createChooser(shareIntent, "分享日志"))
+    } catch (e: Exception) {
+        android.widget.Toast.makeText(context, "分享失败: ${e.message}", android.widget.Toast.LENGTH_SHORT).show()
+    }
+}
+
+private fun clearLogs(context: Context) {
+    try {
+        val logRepo = LogRepository(context)
+        logRepo.clearLogs()
+        android.widget.Toast.makeText(context, "日志已清除", android.widget.Toast.LENGTH_SHORT).show()
+    } catch (e: Exception) {
+        android.widget.Toast.makeText(context, "清除失败: ${e.message}", android.widget.Toast.LENGTH_SHORT).show()
+    }
 }
