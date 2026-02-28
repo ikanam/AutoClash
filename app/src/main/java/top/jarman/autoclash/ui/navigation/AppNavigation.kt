@@ -1,5 +1,7 @@
 package top.jarman.autoclash.ui.navigation
 
+import androidx.compose.animation.*
+import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
@@ -22,11 +24,37 @@ object Routes {
     fun ruleEditor(groupName: String) = "rule_editor/$groupName"
 }
 
+private const val ANIMATION_DURATION = 300
+
 @Composable
 fun AppNavigation(navController: NavHostController) {
     NavHost(
         navController = navController,
-        startDestination = Routes.HOME_SETTINGS
+        startDestination = Routes.HOME_SETTINGS,
+        enterTransition = {
+            slideInHorizontally(
+                initialOffsetX = { it },
+                animationSpec = tween(ANIMATION_DURATION)
+            ) + fadeIn(animationSpec = tween(ANIMATION_DURATION))
+        },
+        exitTransition = {
+            slideOutHorizontally(
+                targetOffsetX = { -it / 3 },
+                animationSpec = tween(ANIMATION_DURATION)
+            ) + fadeOut(animationSpec = tween(ANIMATION_DURATION))
+        },
+        popEnterTransition = {
+            slideInHorizontally(
+                initialOffsetX = { -it / 3 },
+                animationSpec = tween(ANIMATION_DURATION)
+            ) + fadeIn(animationSpec = tween(ANIMATION_DURATION))
+        },
+        popExitTransition = {
+            slideOutHorizontally(
+                targetOffsetX = { it },
+                animationSpec = tween(ANIMATION_DURATION)
+            ) + fadeOut(animationSpec = tween(ANIMATION_DURATION))
+        }
     ) {
         composable(Routes.HOME_SETTINGS) {
             SettingsScreen(
