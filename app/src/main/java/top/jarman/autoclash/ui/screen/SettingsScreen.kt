@@ -413,7 +413,7 @@ fun SettingsScreen(
                             fontSize = 16.sp
                         )
                         Text(
-                            "显示服务运行状态，降低被系统杀死的概率",
+                            "显示服务运行状态",
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             fontSize = 13.sp
                         )
