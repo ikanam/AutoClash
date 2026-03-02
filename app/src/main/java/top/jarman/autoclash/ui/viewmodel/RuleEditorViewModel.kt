@@ -14,6 +14,7 @@ import top.jarman.autoclash.data.model.RuleType
 import top.jarman.autoclash.data.repository.MihomoRepository
 import top.jarman.autoclash.data.repository.RuleRepository
 import top.jarman.autoclash.data.repository.SettingsRepository
+import top.jarman.autoclash.service.RuleEngine
 
 data class RuleEditorUiState(
     val groupName: String = "",
@@ -31,6 +32,7 @@ class RuleEditorViewModel(application: Application) : AndroidViewModel(applicati
 
     private val settingsRepo = SettingsRepository(application)
     private val ruleRepo = RuleRepository(application)
+    private val ruleEngine = RuleEngine(application)
 
     private val _uiState = MutableStateFlow(RuleEditorUiState())
     val uiState: StateFlow<RuleEditorUiState> = _uiState.asStateFlow()
@@ -105,6 +107,8 @@ class RuleEditorViewModel(application: Application) : AndroidViewModel(applicati
             )
             ruleRepo.addRule(rule)
             refreshRules()
+            // Re-evaluate affected group rules
+            ruleEngine.evaluateRules()
         }
     }
 
@@ -119,6 +123,8 @@ class RuleEditorViewModel(application: Application) : AndroidViewModel(applicati
             )
             ruleRepo.updateRule(updated)
             refreshRules()
+            // Re-evaluate affected group rules
+            ruleEngine.evaluateRules()
         }
     }
 
@@ -137,6 +143,8 @@ class RuleEditorViewModel(application: Application) : AndroidViewModel(applicati
             val updated = rule.copy(enabled = !rule.enabled)
             ruleRepo.updateRule(updated)
             refreshRules()
+            // Re-evaluate affected group rules
+            ruleEngine.evaluateRules()
         }
     }
 
@@ -144,6 +152,8 @@ class RuleEditorViewModel(application: Application) : AndroidViewModel(applicati
         viewModelScope.launch {
             ruleRepo.deleteRule(ruleId)
             refreshRules()
+            // Re-evaluate affected group rules
+            ruleEngine.evaluateRules()
         }
     }
 
@@ -157,6 +167,8 @@ class RuleEditorViewModel(application: Application) : AndroidViewModel(applicati
             ruleRepo.updateRule(rule.copy(priority = above.priority))
             ruleRepo.updateRule(above.copy(priority = rule.priority))
             refreshRules()
+            // Re-evaluate affected group rules
+            ruleEngine.evaluateRules()
         }
     }
 
@@ -168,6 +180,8 @@ class RuleEditorViewModel(application: Application) : AndroidViewModel(applicati
                 }
             }
             refreshRules()
+            // Re-evaluate affected group rules
+            ruleEngine.evaluateRules()
         }
     }
 

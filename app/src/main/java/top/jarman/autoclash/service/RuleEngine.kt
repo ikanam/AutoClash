@@ -9,8 +9,10 @@ import android.net.wifi.WifiManager
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withContext
 import kotlin.coroutines.resume
 import top.jarman.autoclash.data.api.ApiClient
 import top.jarman.autoclash.data.model.RuleType
@@ -340,7 +342,7 @@ class RuleEngine(private val context: Context) {
      * Works for both WiFi and cellular - detects actual broadband provider.
      * Enhanced with more retries and longer timeouts for weak network scenarios.
      */
-    private suspend fun getCurrentCarrier(): String? {
+    private suspend fun getCurrentCarrier(): String? = withContext(Dispatchers.IO) {
         val maxRetries = 5
         val initialRetryDelayMs = 2000L
         var attempt = 0
@@ -349,8 +351,8 @@ class RuleEngine(private val context: Context) {
             try {
                 val url = java.net.URL("http://ip-api.com/json/?fields=isp")
                 val connection = url.openConnection() as java.net.HttpURLConnection
-                connection.connectTimeout = 10000  // Increased from 5000ms
-                connection.readTimeout = 10000     // Increased from 5000ms
+                connection.connectTimeout = 10000
+                connection.readTimeout = 10000
                 connection.requestMethod = "GET"
 
                 val responseCode = connection.responseCode
@@ -361,7 +363,7 @@ class RuleEngine(private val context: Context) {
                     val isp = org.json.JSONObject(body).optString("isp", "")
                     val carrier = normalizeCarrier(isp)
                     Log.i(TAG, "当前网络 ISP: [$isp] -> 运营商: [$carrier]")
-                    return carrier.takeIf { it.isNotBlank() }
+                    return@withContext carrier.takeIf { it.isNotBlank() }
                 } else {
                     connection.disconnect()
                     Log.w(TAG, "IP lookup failed: HTTP $responseCode")
@@ -379,7 +381,7 @@ class RuleEngine(private val context: Context) {
             }
         }
         Log.e(TAG, "ISP lookup failed after $maxRetries attempts")
-        return null
+        return@withContext null
     }
 
     /**
