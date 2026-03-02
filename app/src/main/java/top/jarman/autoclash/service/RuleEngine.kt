@@ -1,9 +1,17 @@
 package top.jarman.autoclash.service
 
 import android.content.Context
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import android.net.wifi.WifiManager
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlin.coroutines.resume
 import top.jarman.autoclash.data.api.ApiClient
 import top.jarman.autoclash.data.model.RuleType
 import top.jarman.autoclash.data.repository.LogLevel
@@ -81,6 +89,16 @@ class RuleEngine(private val context: Context) {
 
     private suspend fun evaluateRulesByType(type: RuleType) {
         try {
+            // Wait for network to be stable before evaluating rules
+            val networkStable = waitForNetworkStable(timeoutMs = 10000)
+            if (!networkStable) {
+                Log.w(TAG, "Network not stable, skipping ${type.displayName} rule evaluation")
+                if (logRepo.isLogEnabled()) {
+                    logRepo.w(TAG, "网络未稳定，跳过 ${type.displayName} 规则评估")
+                }
+                // Continue anyway - don't block rule evaluation entirely
+            }
+
             val baseUrl = settingsRepo.apiBaseUrl.first()
             val secret = settingsRepo.apiSecret.first()
 
@@ -204,20 +222,120 @@ class RuleEngine(private val context: Context) {
     }
 
     /**
+     * Wait for network to be stable before evaluating rules.
+     * Uses NetworkCallback to detect when network is fully connected.
+     * Returns true if network is stable, false if timeout.
+     */
+    private suspend fun waitForNetworkStable(timeoutMs: Long = 10000): Boolean {
+        val connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        val network = connectivityManager.activeNetwork
+
+        if (network == null) {
+            Log.w(TAG, "No active network found")
+            return false
+        }
+
+        val capabilities = connectivityManager.getNetworkCapabilities(network)
+        if (capabilities == null) {
+            Log.w(TAG, "No network capabilities available")
+            return false
+        }
+
+        // Check if network has valid transport (WiFi or Cellular)
+        val hasTransport = capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) ||
+                capabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) ||
+                capabilities.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)
+
+        if (!hasTransport) {
+            Log.w(TAG, "Network has no valid transport")
+            return false
+        }
+
+        // Check if network is validated (actually connected to internet)
+        if (capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)) {
+            Log.i(TAG, "Network is already validated and stable")
+            return true
+        }
+
+        // Network exists but not yet validated, wait for it
+        Log.i(TAG, "Network exists but not validated, waiting for stability...")
+
+        return suspendCancellableCoroutine { continuation ->
+            val callback = object : ConnectivityManager.NetworkCallback() {
+                override fun onCapabilitiesChanged(
+                    network: Network,
+                    networkCapabilities: NetworkCapabilities
+                ) {
+                    if (networkCapabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)) {
+                        Log.i(TAG, "Network became validated and stable")
+                        connectivityManager.unregisterNetworkCallback(this)
+                        if (continuation.isActive) {
+                            continuation.resume(true)
+                        }
+                    }
+                }
+
+                override fun onLost(network: Network) {
+                    Log.w(TAG, "Network lost")
+                    connectivityManager.unregisterNetworkCallback(this)
+                    if (continuation.isActive) {
+                        continuation.resume(false)
+                    }
+                }
+            }
+
+            val request = NetworkRequest.Builder()
+                .addCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+                .build()
+
+            try {
+                connectivityManager.registerNetworkCallback(request, callback)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to register network callback", e)
+                if (continuation.isActive) {
+                    continuation.resume(false)
+                }
+                return@suspendCancellableCoroutine
+            }
+
+            // Timeout handler using Handler
+            val handler = Handler(Looper.getMainLooper())
+            val timeoutRunnable = Runnable {
+                connectivityManager.unregisterNetworkCallback(callback)
+                if (continuation.isActive) {
+                    Log.w(TAG, "Network stability wait timed out after ${timeoutMs}ms")
+                    continuation.resume(false)
+                }
+            }
+            handler.postDelayed(timeoutRunnable, timeoutMs)
+
+            continuation.invokeOnCancellation {
+                handler.removeCallbacks(timeoutRunnable)
+                try {
+                    connectivityManager.unregisterNetworkCallback(callback)
+                } catch (e: Exception) {
+                    // Ignore if already unregistered
+                }
+            }
+        }
+    }
+
+    /**
      * Get current network ISP by querying public IP info.
      * Works for both WiFi and cellular - detects actual broadband provider.
+     * Enhanced with more retries and longer timeouts for weak network scenarios.
      */
     private suspend fun getCurrentCarrier(): String? {
-        val maxRetries = 3
-        val retryDelayMs = 2000L
+        val maxRetries = 5
+        val initialRetryDelayMs = 2000L
         var attempt = 0
 
         while (attempt < maxRetries) {
             try {
                 val url = java.net.URL("http://ip-api.com/json/?fields=isp")
                 val connection = url.openConnection() as java.net.HttpURLConnection
-                connection.connectTimeout = 5000
-                connection.readTimeout = 5000
+                connection.connectTimeout = 10000  // Increased from 5000ms
+                connection.readTimeout = 10000     // Increased from 5000ms
                 connection.requestMethod = "GET"
 
                 val responseCode = connection.responseCode
@@ -236,11 +354,13 @@ class RuleEngine(private val context: Context) {
             } catch (e: Exception) {
                 Log.e(TAG, "Error detecting ISP via IP lookup on attempt ${attempt + 1}", e)
             }
-            
+
             attempt++
             if (attempt < maxRetries) {
-                Log.w(TAG, "ISP 检查失败，将在 ${retryDelayMs / 1000} 秒后重试 (当前重试次数: $attempt/$maxRetries)")
-                kotlinx.coroutines.delay(retryDelayMs)
+                // Exponential backoff: 2s, 4s, 8s, 16s
+                val delayMs = initialRetryDelayMs * (1 shl (attempt - 1))
+                Log.w(TAG, "ISP 检查失败，将在 ${delayMs / 1000} 秒后重试 (当前重试次数: $attempt/$maxRetries)")
+                kotlinx.coroutines.delay(delayMs)
             }
         }
         Log.e(TAG, "ISP lookup failed after $maxRetries attempts")
