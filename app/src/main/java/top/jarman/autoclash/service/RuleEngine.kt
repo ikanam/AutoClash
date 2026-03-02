@@ -35,6 +35,12 @@ class RuleEngine(private val context: Context) {
      */
     suspend fun evaluateRules() {
         try {
+            // Wait for network to be stable first
+            val networkStable = waitForNetworkStable(timeoutMs = 10000)
+            if (!networkStable) {
+                Log.w(TAG, "Network not stable, skipping initial rule evaluation")
+            }
+
             val baseUrl = settingsRepo.apiBaseUrl.first()
             val secret = settingsRepo.apiSecret.first()
 
@@ -45,20 +51,29 @@ class RuleEngine(private val context: Context) {
 
             val api = ApiClient.getApi(baseUrl, secret)
             val repo = MihomoRepository(api)
-            val rules = ruleRepo.rules.first().filter { it.enabled }
+            val rules = ruleRepo.rules.first().filter { it.enabled }.sortedBy { it.priority }
 
             val currentSsid = getCurrentSsid()
             val currentCarrier = getCurrentCarrier()
 
             Log.d(TAG, "Evaluating ${rules.size} rules. SSID=$currentSsid, Carrier=$currentCarrier")
 
+            // Track matched groups to avoid duplicate switches for the same group
+            val matchedGroups = mutableSetOf<String>()
+
             for (rule in rules) {
+                // Skip if this group already had a match
+                if (rule.groupName in matchedGroups) {
+                    continue
+                }
+
                 val matches = when (rule.ruleType) {
                     RuleType.WLAN -> currentSsid != null && currentSsid == rule.condition
                     RuleType.CARRIER -> currentCarrier != null && currentCarrier.contains(rule.condition, ignoreCase = true)
                 }
 
                 if (matches) {
+                    matchedGroups.add(rule.groupName)
                     Log.i(TAG, "Rule matched: ${rule.ruleType} [${rule.condition}] -> switching ${rule.groupName} to ${rule.targetProxy}")
                     val result = repo.switchProxy(rule.groupName, rule.targetProxy)
                     if (result.isSuccess) {
