@@ -41,14 +41,18 @@ class NetworkReceiver : BroadcastReceiver() {
 
         when (intent.action) {
             WifiManager.NETWORK_STATE_CHANGED_ACTION -> {
+                // WiFi state changes (connect/disconnect) - evaluate both WLAN and CARRIER rules
+                // WiFi disconnect may trigger network transition to cellular
                 currentJob = scope.launch {
                     logRepository?.i(TAG, "检测到 WiFi 网络变化")
                     ruleEngine.evaluateWlanRules()
+                    ruleEngine.evaluateCarrierRules()
                 }
             }
             ConnectivityManager.CONNECTIVITY_ACTION -> {
                 currentJob = scope.launch {
-                    logRepository?.i(TAG, "检测到移动网络变化")
+                    logRepository?.i(TAG, "检测到网络变化")
+                    ruleEngine.evaluateWlanRules()
                     ruleEngine.evaluateCarrierRules()
                 }
             }
