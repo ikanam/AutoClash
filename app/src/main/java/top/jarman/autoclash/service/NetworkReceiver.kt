@@ -42,13 +42,7 @@ class NetworkReceiver : BroadcastReceiver() {
         when (intent.action) {
             WifiManager.NETWORK_STATE_CHANGED_ACTION -> {
                 currentJob = scope.launch {
-                    // Log WiFi network change
-                    val actionText = when {
-                        intent.getBooleanExtra(WifiManager.EXTRA_NETWORK_INFO, false) -> "WiFi 状态变化"
-                        else -> "WiFi 网络变化"
-                    }
-                    logRepository?.i(TAG, "检测到 $actionText")
-
+                    logRepository?.i(TAG, "检测到 WiFi 网络变化")
                     ruleEngine.evaluateWlanRules()
                 }
             }
