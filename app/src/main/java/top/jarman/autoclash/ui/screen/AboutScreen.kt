@@ -28,9 +28,9 @@ fun AboutScreen(
 ) {
     val context = LocalContext.current
     val versionName = try {
-        context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "1.0.0"
+        context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "1.0.3"
     } catch (e: Exception) {
-        "1.0.0"
+        "1.0.3"
     }
 
     Scaffold(
