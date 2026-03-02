@@ -410,7 +410,7 @@ private fun RuleDialog(
         AlertDialog(
             onDismissRequest = { showIspWarning = false },
             title = { Text("注意事项", fontWeight = FontWeight.Bold) },
-            text = { Text("获取ISP依赖ip-api接口，请确保该接口(ip-api.com)走**直连**，否则可能导致ISP识别错误。") },
+            text = { Text("获取ISP依赖api.ip.sb接口，请确保该接口(api.ip.sb)走**直连**，否则可能导致ISP识别错误。") },
             confirmButton = {
                 TextButton(onClick = { 
                     showIspWarning = false

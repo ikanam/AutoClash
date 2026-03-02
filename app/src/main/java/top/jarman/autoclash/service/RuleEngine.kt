@@ -349,7 +349,7 @@ class RuleEngine(private val context: Context) {
 
         while (attempt < maxRetries) {
             try {
-                val url = java.net.URL("http://ip-api.com/json/?fields=isp")
+                val url = java.net.URL("https://api.ip.sb/geoip")
                 val connection = url.openConnection() as java.net.HttpURLConnection
                 connection.connectTimeout = 10000
                 connection.readTimeout = 10000
@@ -359,7 +359,7 @@ class RuleEngine(private val context: Context) {
                 if (responseCode == 200) {
                     val body = connection.inputStream.bufferedReader().readText()
                     connection.disconnect()
-                    // Response: {"isp":"China Telecom"}
+                    // Response: {"isp":"China Telecom","organization":"..."}
                     val isp = org.json.JSONObject(body).optString("isp", "")
                     val carrier = normalizeCarrier(isp)
                     Log.i(TAG, "当前网络 ISP: [$isp] -> 运营商: [$carrier]")
@@ -385,14 +385,13 @@ class RuleEngine(private val context: Context) {
     }
 
     /**
-     * Normalize English ISP name from ip-api.com to canonical carrier name.
-     * - 电信: Chinanet / China Telecom
-     * - 移动: China Mobile
-     * - 联通: China Unicom
+     * Normalize English ISP name from api.ip.sb to canonical carrier name.
+     * - China Telecom -> 中国电信
+     * - China Mobile -> 中国移动
+     * - China Unicom -> 中国联通
      */
     private fun normalizeCarrier(isp: String): String {
         return when {
-            isp.contains("Chinanet", ignoreCase = true) ||
             isp.contains("China Telecom", ignoreCase = true) -> "中国电信"
             isp.contains("China Mobile", ignoreCase = true) -> "中国移动"
             isp.contains("China Unicom", ignoreCase = true) -> "中国联通"
