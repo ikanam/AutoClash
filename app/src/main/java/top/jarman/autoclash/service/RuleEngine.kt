@@ -36,7 +36,7 @@ class RuleEngine(private val context: Context) {
     suspend fun evaluateRules() {
         try {
             // Wait for network to be stable first
-            val networkStable = waitForNetworkStable(timeoutMs = 10000)
+            val networkStable = waitForNetworkStable(timeoutMs = 5000)
             if (!networkStable) {
                 Log.w(TAG, "Network not stable, skipping initial rule evaluation")
             }
@@ -105,7 +105,7 @@ class RuleEngine(private val context: Context) {
     private suspend fun evaluateRulesByType(type: RuleType) {
         try {
             // Wait for network to be stable before evaluating rules
-            val networkStable = waitForNetworkStable(timeoutMs = 10000)
+            val networkStable = waitForNetworkStable(timeoutMs = 5000)
             if (!networkStable) {
                 Log.w(TAG, "Network not stable, skipping ${type.displayName} rule evaluation")
                 if (logRepo.isLogEnabled()) {
