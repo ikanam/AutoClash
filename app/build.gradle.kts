@@ -1,12 +1,48 @@
+import java.util.Base64
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.compose.compiler)
+}
+
+// 读取 local.properties（本地打包用，使用 UTF-8 编码以支持中文路径）
+val localProperties = Properties().apply {
+    val localPropertiesFile = rootProject.file("local.properties")
+    if (localPropertiesFile.exists()) {
+        localPropertiesFile.reader(Charsets.UTF_8).use { load(it) }
+    }
 }
 
 android {
     namespace = "top.jarman.autoclash"
     compileSdk {
         version = release(36)
+    }
+
+    signingConfigs {
+        create("release") {
+            // 优先使用环境变量（CI），否则使用 local.properties（本地）
+            val envKeystoreBase64 = System.getenv("KEYSTORE_BASE64")
+            if (!envKeystoreBase64.isNullOrEmpty()) {
+                // GitHub Actions: Base64 解码 keystore 到临时文件
+                val keystoreFile = File(System.getProperty("java.io.tmpdir"), "keystore.jks")
+                keystoreFile.writeBytes(Base64.getDecoder().decode(envKeystoreBase64))
+                storeFile = keystoreFile
+                storePassword = System.getenv("KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("KEY_ALIAS")
+                keyPassword = System.getenv("KEY_PASSWORD")
+            } else {
+                // 本地打包: 从 local.properties 读取
+                val keystorePath = localProperties.getProperty("keystore.file")
+                if (keystorePath != null) {
+                    storeFile = file(keystorePath)
+                    storePassword = localProperties.getProperty("keystore.password")
+                    keyAlias = localProperties.getProperty("key.alias")
+                    keyPassword = localProperties.getProperty("key.password")
+                }
+            }
+        }
     }
 
     defaultConfig {
@@ -19,8 +55,18 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    splits {
+        abi {
+            isEnable = true
+            reset()
+            include("armeabi-v7a", "arm64-v8a")
+            isUniversalApk = false
+        }
+    }
+
     buildTypes {
         release {
+            signingConfig = signingConfigs.getByName("release")
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
