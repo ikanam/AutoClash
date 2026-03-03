@@ -66,6 +66,9 @@ dependencies {
     // DataStore
     implementation(libs.androidx.datastore.preferences)
 
+    // WorkManager
+    implementation(libs.androidx.work.runtime.ktx)
+
     // Networking
     implementation(libs.retrofit)
     implementation(libs.retrofit.converter.gson)

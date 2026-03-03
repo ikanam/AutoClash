@@ -13,6 +13,11 @@ import android.os.Build
 import android.os.IBinder
 import android.util.Log
 import androidx.core.app.NotificationCompat
+import androidx.work.Constraints
+import androidx.work.ExistingPeriodicWorkPolicy
+import androidx.work.NetworkType
+import androidx.work.PeriodicWorkRequestBuilder
+import androidx.work.WorkManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -51,6 +56,9 @@ class AutomationService : Service() {
         startForeground(NOTIFICATION_ID, createNotification())
 
         registerNetworkReceiver()
+
+        // Start periodic rule check via WorkManager (backup when broadcast receivers don't work)
+        startPeriodicRuleCheck()
 
         val settingsRepo = top.jarman.autoclash.data.repository.SettingsRepository(applicationContext)
 
@@ -101,6 +109,7 @@ class AutomationService : Service() {
         }
 
         unregisterNetworkReceiver()
+        cancelPeriodicRuleCheck()
         serviceScope.cancel()
     }
 
@@ -157,5 +166,40 @@ class AutomationService : Service() {
             }
         }
         networkReceiver = null
+    }
+
+    /**
+     * Start periodic rule check via WorkManager.
+     * This serves as a backup when dynamic BroadcastReceivers don't work in the background.
+     * Minimum interval is 15 minutes per WorkManager requirements.
+     */
+    private fun startPeriodicRuleCheck() {
+        val constraints = Constraints.Builder()
+            .setRequiredNetworkType(NetworkType.CONNECTED)
+            .build()
+
+        // Schedule periodic work every 15 minutes (WorkManager minimum)
+        val periodicWork = PeriodicWorkRequestBuilder<RuleCheckWorker>(
+            15, java.util.concurrent.TimeUnit.MINUTES
+        )
+            .setConstraints(constraints)
+            .addTag(RuleCheckWorker.WORK_NAME)
+            .build()
+
+        WorkManager.getInstance(applicationContext).enqueueUniquePeriodicWork(
+            RuleCheckWorker.WORK_NAME,
+            ExistingPeriodicWorkPolicy.KEEP,
+            periodicWork
+        )
+
+        Log.d(TAG, "Periodic rule check scheduled (every 15 minutes)")
+    }
+
+    /**
+     * Cancel periodic rule check when service is destroyed.
+     */
+    private fun cancelPeriodicRuleCheck() {
+        WorkManager.getInstance(applicationContext).cancelUniqueWork(RuleCheckWorker.WORK_NAME)
+        Log.d(TAG, "Periodic rule check cancelled")
     }
 }
