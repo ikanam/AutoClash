@@ -77,7 +77,13 @@ class RuleEngine(private val context: Context) {
 
                 if (matches) {
                     matchedGroups.add(rule.groupName)
-                    Log.i(TAG, "Rule matched: ${rule.ruleType} [${rule.condition}] -> switching ${rule.groupName} to ${rule.targetProxy}")
+                    val currentProxy = repo.getProxyGroup(rule.groupName).getOrNull()?.now
+                    if (currentProxy == rule.targetProxy) {
+                        Log.i(TAG, "Rule matched but no-op: ${rule.groupName} already on ${rule.targetProxy}")
+                        continue
+                    }
+
+                    Log.i(TAG, "Rule matched: ${rule.ruleType} [${rule.condition}] -> switching ${rule.groupName} to ${rule.targetProxy} (current=$currentProxy)")
                     val result = repo.switchProxy(rule.groupName, rule.targetProxy)
                     if (result.isSuccess) {
                         switchedCount++
@@ -194,7 +200,17 @@ class RuleEngine(private val context: Context) {
 
                 if (matches) {
                     matchedGroups.add(rule.groupName)
-                    Log.i(TAG, "✅ 规则命中! 切换 [${rule.groupName}] -> [${rule.targetProxy}] (后续该组规则将跳过)")
+
+                    val currentProxy = repo.getProxyGroup(rule.groupName).getOrNull()?.now
+                    if (currentProxy == rule.targetProxy) {
+                        Log.i(TAG, "✅ 规则命中但无需切换: ${rule.groupName} 已是 ${rule.targetProxy}")
+                        if (isLoggingEnabled) {
+                            logRepo.i(TAG, "规则命中但无需切换: ${rule.groupName} 已是 ${rule.targetProxy}")
+                        }
+                        continue
+                    }
+
+                    Log.i(TAG, "✅ 规则命中! 切换 [${rule.groupName}] -> [${rule.targetProxy}] (当前: ${currentProxy ?: "未知"}, 后续该组规则将跳过)")
                     val result = repo.switchProxy(rule.groupName, rule.targetProxy)
                     if (result.isSuccess) {
                         switchedCount++
