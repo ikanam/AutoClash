@@ -20,10 +20,8 @@ import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import top.jarman.autoclash.data.api.ApiClient
@@ -39,13 +37,12 @@ class AutomationService : Service() {
         private const val TAG = "AutomationService"
         private const val CHANNEL_ID = "auto_clash_service"
         private const val NOTIFICATION_ID = 1
-        private const val NOTIFICATION_REFRESH_INTERVAL_MS = 60_000L
+        const val ACTION_REFRESH_NOTIFICATION = "top.jarman.autoclash.action.REFRESH_NOTIFICATION"
     }
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private lateinit var ruleEngine: RuleEngine
     private var networkReceiver: NetworkReceiver? = null
-    private var notificationRefreshJob: Job? = null
     private var isNotificationEnabled: Boolean = true
 
     @Volatile
@@ -91,7 +88,6 @@ class AutomationService : Service() {
                             android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
                         else 0
                     )
-                    refreshAndPublishNotificationStatus()
                 } else {
                     androidx.core.app.ServiceCompat.stopForeground(
                         this@AutomationService,
@@ -101,23 +97,22 @@ class AutomationService : Service() {
             }
         }
 
-        // Keep notification content updated with auto-managed groups' current strategies
-        notificationRefreshJob = serviceScope.launch {
-            while (true) {
-                refreshAndPublishNotificationStatus()
-                delay(NOTIFICATION_REFRESH_INTERVAL_MS)
-            }
-        }
-
-        // Run initial evaluation
+        // Run initial evaluation (only refresh notification when rules actually switched)
         serviceScope.launch {
-            ruleEngine.evaluateRules()
-            refreshAndPublishNotificationStatus()
+            val switchedCount = ruleEngine.evaluateRules()
+            if (switchedCount > 0) {
+                refreshAndPublishNotificationStatus()
+            }
         }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         Log.d(TAG, "onStartCommand: ${intent?.action}")
+        if (intent?.action == ACTION_REFRESH_NOTIFICATION) {
+            serviceScope.launch {
+                refreshAndPublishNotificationStatus()
+            }
+        }
         return START_STICKY
     }
 
@@ -137,7 +132,6 @@ class AutomationService : Service() {
 
         unregisterNetworkReceiver()
         cancelPeriodicRuleCheck()
-        notificationRefreshJob?.cancel()
         serviceScope.cancel()
     }
 
@@ -199,6 +193,7 @@ class AutomationService : Service() {
         val settingsRepo = SettingsRepository(applicationContext)
 
         val groupNames = ruleRepo.rules.first()
+            .filter { it.enabled }
             .map { it.groupName }
             .filter { it.isNotBlank() }
             .distinct()
