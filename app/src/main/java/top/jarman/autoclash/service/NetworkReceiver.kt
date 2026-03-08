@@ -12,7 +12,6 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import top.jarman.autoclash.data.repository.LogRepository
-import top.jarman.autoclash.data.repository.LogLevel
 
 class NetworkReceiver : BroadcastReceiver() {
 
@@ -45,17 +44,36 @@ class NetworkReceiver : BroadcastReceiver() {
                 // WiFi disconnect may trigger network transition to cellular
                 currentJob = scope.launch {
                     logRepository?.i(TAG, "检测到 WiFi 网络变化")
-                    ruleEngine.evaluateWlanRules()
-                    ruleEngine.evaluateCarrierRules()
+                    val switched = ruleEngine.evaluateWlanRules() + ruleEngine.evaluateCarrierRules()
+                    if (switched > 0) {
+                        requestNotificationRefresh(context)
+                    }
                 }
             }
             ConnectivityManager.CONNECTIVITY_ACTION -> {
                 currentJob = scope.launch {
                     logRepository?.i(TAG, "检测到网络变化")
-                    ruleEngine.evaluateWlanRules()
-                    ruleEngine.evaluateCarrierRules()
+                    val switched = ruleEngine.evaluateWlanRules() + ruleEngine.evaluateCarrierRules()
+                    if (switched > 0) {
+                        requestNotificationRefresh(context)
+                    }
                 }
             }
+        }
+    }
+
+    private fun requestNotificationRefresh(context: Context) {
+        val intent = Intent(context, AutomationService::class.java).apply {
+            action = AutomationService.ACTION_REFRESH_NOTIFICATION
+        }
+        try {
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                context.startForegroundService(intent)
+            } else {
+                context.startService(intent)
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to request notification refresh", e)
         }
     }
 }

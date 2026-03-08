@@ -22,8 +22,13 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import top.jarman.autoclash.data.api.ApiClient
 import top.jarman.autoclash.data.repository.LogRepository
+import top.jarman.autoclash.data.repository.MihomoRepository
+import top.jarman.autoclash.data.repository.RuleRepository
+import top.jarman.autoclash.data.repository.SettingsRepository
 import top.jarman.autoclash.ui.MainActivity
 
 class AutomationService : Service() {
@@ -32,11 +37,19 @@ class AutomationService : Service() {
         private const val TAG = "AutomationService"
         private const val CHANNEL_ID = "auto_clash_service"
         private const val NOTIFICATION_ID = 1
+        const val ACTION_REFRESH_NOTIFICATION = "top.jarman.autoclash.action.REFRESH_NOTIFICATION"
     }
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private lateinit var ruleEngine: RuleEngine
     private var networkReceiver: NetworkReceiver? = null
+    private var isNotificationEnabled: Boolean = true
+
+    @Volatile
+    private var notificationContentText: String = "自动策略切换服务运行中"
+
+    @Volatile
+    private var notificationBigText: String? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -60,11 +73,12 @@ class AutomationService : Service() {
         // Start periodic rule check via WorkManager (backup when broadcast receivers don't work)
         startPeriodicRuleCheck()
 
-        val settingsRepo = top.jarman.autoclash.data.repository.SettingsRepository(applicationContext)
+        val settingsRepo = SettingsRepository(applicationContext)
 
         // Listen for notification setting changes
         serviceScope.launch {
             settingsRepo.showNotification.collect { show ->
+                isNotificationEnabled = show
                 if (show) {
                     androidx.core.app.ServiceCompat.startForeground(
                         this@AutomationService,
@@ -83,14 +97,21 @@ class AutomationService : Service() {
             }
         }
 
-        // Run initial evaluation
+        // Run initial evaluation, then refresh notification once for initial status display.
+        // After startup, notification refreshes are still event-driven (only on actual switches).
         serviceScope.launch {
             ruleEngine.evaluateRules()
+            refreshAndPublishNotificationStatus()
         }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         Log.d(TAG, "onStartCommand: ${intent?.action}")
+        if (intent?.action == ACTION_REFRESH_NOTIFICATION) {
+            serviceScope.launch {
+                refreshAndPublishNotificationStatus()
+            }
+        }
         return START_STICKY
     }
 
@@ -136,14 +157,68 @@ class AutomationService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        return NotificationCompat.Builder(this, CHANNEL_ID)
+        val builder = NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("AutoClash")
-            .setContentText("自动策略切换服务运行中")
+            .setContentText(notificationContentText)
             .setSmallIcon(android.R.drawable.ic_menu_manage)
             .setContentIntent(pendingIntent)
             .setOngoing(true)
             .setSilent(true)
-            .build()
+
+        notificationBigText?.takeIf { it.isNotBlank() }?.let {
+            builder.setStyle(NotificationCompat.BigTextStyle().bigText(it))
+        }
+
+        return builder.build()
+    }
+
+    private suspend fun refreshAndPublishNotificationStatus() {
+        runCatching {
+            val status = buildNotificationStatusText()
+            notificationContentText = status.first
+            notificationBigText = status.second
+        }.onFailure {
+            Log.w(TAG, "Failed to refresh notification status", it)
+        }
+
+        if (isNotificationEnabled) {
+            getSystemService(NotificationManager::class.java)
+                .notify(NOTIFICATION_ID, createNotification())
+        }
+    }
+
+    private suspend fun buildNotificationStatusText(): Pair<String, String?> {
+        val ruleRepo = RuleRepository(applicationContext)
+        val settingsRepo = SettingsRepository(applicationContext)
+
+        val groupNames = ruleRepo.rules.first()
+            .filter { it.enabled }
+            .map { it.groupName }
+            .filter { it.isNotBlank() }
+            .distinct()
+            .sorted()
+
+        if (groupNames.isEmpty()) {
+            return "自动策略切换服务运行中（暂无自动策略组）" to null
+        }
+
+        val apiBaseUrl = settingsRepo.apiBaseUrl.first()
+        val apiSecret = settingsRepo.apiSecret.first()
+        val api = ApiClient.getApi(apiBaseUrl, apiSecret)
+        val repo = MihomoRepository(api)
+
+        val lines = groupNames.map { groupName ->
+            val current = repo.getProxyGroup(groupName).getOrNull()?.now ?: "未知"
+            "$groupName: $current"
+        }
+
+        val summary = if (lines.size == 1) {
+            lines.first()
+        } else {
+            "${lines.size}个自动策略组，${lines.first()}"
+        }
+
+        return summary to lines.joinToString("\n")
     }
 
     @Suppress("deprecation")

@@ -36,13 +36,31 @@ class RuleCheckWorker(
             val ruleEngine = RuleEngine(applicationContext)
 
             // Evaluate all rules (both WLAN and CARRIER)
-            ruleEngine.evaluateRules()
+            val switched = ruleEngine.evaluateRules()
+            if (switched > 0) {
+                requestNotificationRefresh()
+            }
 
             Log.d(TAG, "Periodic rule check completed")
             return Result.success()
         } catch (e: Exception) {
             Log.e(TAG, "Error during periodic rule check", e)
             return Result.retry()
+        }
+    }
+
+    private fun requestNotificationRefresh() {
+        val intent = android.content.Intent(applicationContext, AutomationService::class.java).apply {
+            action = AutomationService.ACTION_REFRESH_NOTIFICATION
+        }
+        try {
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                applicationContext.startForegroundService(intent)
+            } else {
+                applicationContext.startService(intent)
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to request notification refresh", e)
         }
     }
 }

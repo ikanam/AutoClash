@@ -35,7 +35,7 @@ class RuleEngine(private val context: Context) {
     /**
      * Evaluate all enabled rules and execute matching ones
      */
-    suspend fun evaluateRules() {
+    suspend fun evaluateRules(): Int {
         try {
             // Wait for network to be stable first
             val networkStable = waitForNetworkStable(timeoutMs = 5000)
@@ -48,7 +48,7 @@ class RuleEngine(private val context: Context) {
 
             if (baseUrl.isBlank()) {
                 Log.w(TAG, "API not configured, skipping rule evaluation")
-                return
+                return 0
             }
 
             val api = ApiClient.getApi(baseUrl, secret)
@@ -62,6 +62,7 @@ class RuleEngine(private val context: Context) {
 
             // Track matched groups to avoid duplicate switches for the same group
             val matchedGroups = mutableSetOf<String>()
+            var switchedCount = 0
 
             for (rule in rules) {
                 // Skip if this group already had a match
@@ -76,35 +77,44 @@ class RuleEngine(private val context: Context) {
 
                 if (matches) {
                     matchedGroups.add(rule.groupName)
-                    Log.i(TAG, "Rule matched: ${rule.ruleType} [${rule.condition}] -> switching ${rule.groupName} to ${rule.targetProxy}")
+                    val currentProxy = repo.getProxyGroup(rule.groupName).getOrNull()?.now
+                    if (currentProxy == rule.targetProxy) {
+                        Log.i(TAG, "Rule matched but no-op: ${rule.groupName} already on ${rule.targetProxy}")
+                        continue
+                    }
+
+                    Log.i(TAG, "Rule matched: ${rule.ruleType} [${rule.condition}] -> switching ${rule.groupName} to ${rule.targetProxy} (current=$currentProxy)")
                     val result = repo.switchProxy(rule.groupName, rule.targetProxy)
                     if (result.isSuccess) {
+                        switchedCount++
                         Log.i(TAG, "Successfully switched ${rule.groupName} to ${rule.targetProxy}")
                     } else {
                         Log.e(TAG, "Failed to switch proxy: ${result.exceptionOrNull()?.message}")
                     }
                 }
             }
+            return switchedCount
         } catch (e: Exception) {
             Log.e(TAG, "Error evaluating rules", e)
+            return 0
         }
     }
 
     /**
      * Evaluate only WLAN rules (triggered by WiFi change)
      */
-    suspend fun evaluateWlanRules() {
-        evaluateRulesByType(RuleType.WLAN)
+    suspend fun evaluateWlanRules(): Int {
+        return evaluateRulesByType(RuleType.WLAN)
     }
 
     /**
      * Evaluate only CARRIER rules (triggered by network change)
      */
-    suspend fun evaluateCarrierRules() {
-        evaluateRulesByType(RuleType.CARRIER)
+    suspend fun evaluateCarrierRules(): Int {
+        return evaluateRulesByType(RuleType.CARRIER)
     }
 
-    private suspend fun evaluateRulesByType(type: RuleType) {
+    private suspend fun evaluateRulesByType(type: RuleType): Int {
         try {
             // Wait for network to be stable before evaluating rules
             val networkStable = waitForNetworkStable(timeoutMs = 5000)
@@ -121,7 +131,7 @@ class RuleEngine(private val context: Context) {
 
             if (baseUrl.isBlank()) {
                 Log.w(TAG, "[${type.displayName}] API not configured, skip")
-                return
+                return 0
             }
 
             // Check if logging is enabled
@@ -142,7 +152,7 @@ class RuleEngine(private val context: Context) {
                 if (isLoggingEnabled) {
                     logRepo.i(TAG, "没有启用的 ${type.displayName} 规则，跳过评估")
                 }
-                return
+                return 0
             }
 
             val hasWlanRules = rules.any { it.ruleType == RuleType.WLAN }
@@ -156,9 +166,9 @@ class RuleEngine(private val context: Context) {
                 logRepo.i(TAG, "当前环境 - SSID: [$currentSsid], 运营商: [$currentCarrier]")
             }
 
-            // Group rules by proxy group, first-match-wins per group
-            val rulesByGroup = rules.groupBy { it.groupName }
+            // first-match-wins per group
             val matchedGroups = mutableSetOf<String>()
+            var switchedCount = 0
 
             for (rule in rules) {
                 // Skip if this group already had a match
@@ -190,9 +200,20 @@ class RuleEngine(private val context: Context) {
 
                 if (matches) {
                     matchedGroups.add(rule.groupName)
-                    Log.i(TAG, "✅ 规则命中! 切换 [${rule.groupName}] -> [${rule.targetProxy}] (后续该组规则将跳过)")
+
+                    val currentProxy = repo.getProxyGroup(rule.groupName).getOrNull()?.now
+                    if (currentProxy == rule.targetProxy) {
+                        Log.i(TAG, "✅ 规则命中但无需切换: ${rule.groupName} 已是 ${rule.targetProxy}")
+                        if (isLoggingEnabled) {
+                            logRepo.i(TAG, "规则命中但无需切换: ${rule.groupName} 已是 ${rule.targetProxy}")
+                        }
+                        continue
+                    }
+
+                    Log.i(TAG, "✅ 规则命中! 切换 [${rule.groupName}] -> [${rule.targetProxy}] (当前: ${currentProxy ?: "未知"}, 后续该组规则将跳过)")
                     val result = repo.switchProxy(rule.groupName, rule.targetProxy)
                     if (result.isSuccess) {
+                        switchedCount++
                         Log.i(TAG, "✅ 切换成功: ${rule.groupName} -> ${rule.targetProxy}")
                         if (isLoggingEnabled) {
                             logRepo.i(TAG, "✅ 策略组切换成功: ${rule.groupName} -> ${rule.targetProxy}")
@@ -211,8 +232,10 @@ class RuleEngine(private val context: Context) {
             if (isLoggingEnabled) {
                 logRepo.i(TAG, "${type.displayName} 规则评估完毕，${matchedGroups.size} 个策略组已切换")
             }
+            return switchedCount
         } catch (e: Exception) {
             Log.e(TAG, "Error evaluating $type rules", e)
+            return 0
         }
     }
 
