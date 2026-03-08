@@ -97,12 +97,11 @@ class AutomationService : Service() {
             }
         }
 
-        // Run initial evaluation (only refresh notification when rules actually switched)
+        // Run initial evaluation, then refresh notification once for initial status display.
+        // After startup, notification refreshes are still event-driven (only on actual switches).
         serviceScope.launch {
-            val switchedCount = ruleEngine.evaluateRules()
-            if (switchedCount > 0) {
-                refreshAndPublishNotificationStatus()
-            }
+            ruleEngine.evaluateRules()
+            refreshAndPublishNotificationStatus()
         }
     }
 
