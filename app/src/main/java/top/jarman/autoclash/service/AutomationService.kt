@@ -20,10 +20,14 @@ import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import top.jarman.autoclash.data.model.AutomationRule
+import top.jarman.autoclash.data.model.RuleType
 import top.jarman.autoclash.data.api.ApiClient
 import top.jarman.autoclash.data.repository.LogRepository
 import top.jarman.autoclash.data.repository.MihomoRepository
@@ -44,6 +48,7 @@ class AutomationService : Service() {
     private lateinit var ruleEngine: RuleEngine
     private var networkReceiver: NetworkReceiver? = null
     private var isNotificationEnabled: Boolean = true
+    private val fallbackLoops = mutableMapOf<String, Job>()
 
     @Volatile
     private var notificationContentText: String = "自动策略切换服务运行中"
@@ -103,6 +108,9 @@ class AutomationService : Service() {
             ruleEngine.evaluateRules()
             refreshAndPublishNotificationStatus()
         }
+
+        // Start fallback monitoring: watch for FALLBACK rules and manage per-rule loops
+        startFallbackMonitoring()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -131,6 +139,8 @@ class AutomationService : Service() {
 
         unregisterNetworkReceiver()
         cancelPeriodicRuleCheck()
+        fallbackLoops.values.forEach { it.cancel() }
+        fallbackLoops.clear()
         serviceScope.cancel()
     }
 
@@ -276,5 +286,41 @@ class AutomationService : Service() {
     private fun cancelPeriodicRuleCheck() {
         WorkManager.getInstance(applicationContext).cancelUniqueWork(RuleCheckWorker.WORK_NAME)
         Log.d(TAG, "Periodic rule check cancelled")
+    }
+
+    /**
+     * Watch the rule repository for FALLBACK rules and maintain a coroutine loop per rule.
+     * Each loop runs a fallback cycle immediately, then repeats every checkIntervalSecs.
+     * Loops are restarted whenever the rule list changes (add/delete/toggle).
+     */
+    private fun startFallbackMonitoring() {
+        val ruleRepo = RuleRepository(applicationContext)
+        serviceScope.launch {
+            ruleRepo.rules.collect { allRules ->
+                // Cancel all existing fallback loops
+                fallbackLoops.values.forEach { it.cancel() }
+                fallbackLoops.clear()
+
+                val fallbackRules = allRules.filter { it.enabled && it.ruleType == RuleType.FALLBACK }
+                Log.d(TAG, "Fallback rules updated: ${fallbackRules.size} active")
+
+                for (rule in fallbackRules) {
+                    fallbackLoops[rule.id] = serviceScope.launch {
+                        launchFallbackLoop(rule)
+                    }
+                }
+            }
+        }
+    }
+
+    private suspend fun launchFallbackLoop(rule: AutomationRule) {
+        Log.i(TAG, "Fallback loop started: ${rule.groupName}, interval=${rule.checkIntervalSecs}s")
+        while (true) {
+            val switched = ruleEngine.runFallbackCycle(rule)
+            if (switched) {
+                refreshAndPublishNotificationStatus()
+            }
+            delay(rule.checkIntervalSecs * 1000L)
+        }
     }
 }

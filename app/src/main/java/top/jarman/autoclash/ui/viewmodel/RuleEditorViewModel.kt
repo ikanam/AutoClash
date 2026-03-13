@@ -16,6 +16,17 @@ import top.jarman.autoclash.data.repository.RuleRepository
 import top.jarman.autoclash.data.repository.SettingsRepository
 import top.jarman.autoclash.service.RuleEngine
 
+data class RuleDialogResult(
+    val ruleType: RuleType,
+    val condition: String,
+    val targetProxy: String,
+    val negate: Boolean,
+    val testUrl: String = "",
+    val checkIntervalSecs: Int = 60,
+    val retryCount: Int = 1,
+    val retryIntervalSecs: Int = 5
+)
+
 data class RuleEditorUiState(
     val groupName: String = "",
     val currentProxy: String = "",
@@ -93,38 +104,72 @@ class RuleEditorViewModel(application: Application) : AndroidViewModel(applicati
         _uiState.value = _uiState.value.copy(showAddDialog = false, editingRule = null)
     }
 
-    fun addRule(ruleType: RuleType, condition: String, targetProxy: String, negate: Boolean = false) {
+    fun addRule(result: RuleDialogResult) {
         viewModelScope.launch {
             val currentRules = ruleRepo.getRulesForGroup(_uiState.value.groupName).first()
+
+            // Conflict check: FALLBACK cannot coexist with WLAN/CARRIER and vice versa
+            val conflictMsg = checkConflict(result.ruleType, currentRules, editingId = null)
+            if (conflictMsg != null) {
+                // Conflict detected — the dialog already shows this; addRule should not be called
+                // in this case, but guard here anyway
+                return@launch
+            }
+
             val maxPriority = currentRules.maxOfOrNull { it.priority } ?: -1
             val rule = AutomationRule(
                 groupName = _uiState.value.groupName,
-                ruleType = ruleType,
-                condition = condition,
-                targetProxy = targetProxy,
-                negate = negate,
-                priority = maxPriority + 1
+                ruleType = result.ruleType,
+                condition = result.condition,
+                targetProxy = result.targetProxy,
+                negate = result.negate,
+                priority = maxPriority + 1,
+                testUrl = result.testUrl,
+                checkIntervalSecs = result.checkIntervalSecs,
+                retryCount = result.retryCount,
+                retryIntervalSecs = result.retryIntervalSecs
             )
             ruleRepo.addRule(rule)
             refreshRules()
-            // Re-evaluate affected group rules
             ruleEngine.evaluateRules()
         }
     }
 
-    fun updateRule(ruleType: RuleType, condition: String, targetProxy: String, negate: Boolean) {
+    fun updateRule(result: RuleDialogResult) {
         val editing = _uiState.value.editingRule ?: return
         viewModelScope.launch {
+            val currentRules = ruleRepo.getRulesForGroup(_uiState.value.groupName).first()
+            val conflictMsg = checkConflict(result.ruleType, currentRules, editingId = editing.id)
+            if (conflictMsg != null) return@launch
+
             val updated = editing.copy(
-                ruleType = ruleType,
-                condition = condition,
-                targetProxy = targetProxy,
-                negate = negate
+                ruleType = result.ruleType,
+                condition = result.condition,
+                targetProxy = result.targetProxy,
+                negate = result.negate,
+                testUrl = result.testUrl,
+                checkIntervalSecs = result.checkIntervalSecs,
+                retryCount = result.retryCount,
+                retryIntervalSecs = result.retryIntervalSecs
             )
             ruleRepo.updateRule(updated)
             refreshRules()
-            // Re-evaluate affected group rules
             ruleEngine.evaluateRules()
+        }
+    }
+
+    /**
+     * Returns a conflict error message if [newType] cannot be added given [existingRules].
+     * [editingId] is excluded from the check (allow editing a rule to the same type).
+     */
+    fun checkConflict(newType: RuleType, existingRules: List<AutomationRule>, editingId: String?): String? {
+        val others = existingRules.filter { it.id != editingId }
+        return when {
+            newType == RuleType.FALLBACK && others.any { it.ruleType != RuleType.FALLBACK } ->
+                "Fallback 规则不能与 WiFi/ISP 规则共存，请先删除已有规则"
+            newType != RuleType.FALLBACK && others.any { it.ruleType == RuleType.FALLBACK } ->
+                "已有 Fallback 规则，不能添加 ${newType.displayName} 规则，请先删除 Fallback 规则"
+            else -> null
         }
     }
 

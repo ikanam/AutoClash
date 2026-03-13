@@ -93,6 +93,24 @@ class MihomoRepository(private val api: MihomoApi) {
     }
 
     /**
+     * Test delay (connectivity) of a specific proxy via Mihomo's delay endpoint.
+     * Returns delay in ms on success, or failure if proxy is unreachable.
+     */
+    suspend fun testProxyDelay(proxyName: String, testUrl: String, timeoutMs: Int = 5000): Result<Int> {
+        return try {
+            val response = api.testProxyDelay(proxyName, testUrl, timeoutMs)
+            if (response.isSuccessful) {
+                response.body()?.let { Result.success(it.delay) }
+                    ?: Result.failure(Exception("Empty response"))
+            } else {
+                Result.failure(Exception("Delay test failed: ${response.code()} ${response.message()}"))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    /**
      * Test API connection
      */
     suspend fun testConnection(): Result<Boolean> {

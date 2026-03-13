@@ -33,3 +33,10 @@ data class ProxyHistory(
 data class SwitchProxyRequest(
     @SerializedName("name") val name: String
 )
+
+/**
+ * Response from GET /proxies/{name}/delay
+ */
+data class DelayResponse(
+    @SerializedName("delay") val delay: Int
+)

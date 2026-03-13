@@ -53,7 +53,9 @@ class RuleEngine(private val context: Context) {
 
             val api = ApiClient.getApi(baseUrl, secret)
             val repo = MihomoRepository(api)
-            val rules = ruleRepo.rules.first().filter { it.enabled }.sortedBy { it.priority }
+            val rules = ruleRepo.rules.first()
+                .filter { it.enabled && it.ruleType != RuleType.FALLBACK }
+                .sortedBy { it.priority }
 
             val currentSsid = getCurrentSsid()
             val currentCarrier = getCurrentCarrier()
@@ -73,6 +75,7 @@ class RuleEngine(private val context: Context) {
                 val matches = when (rule.ruleType) {
                     RuleType.WLAN -> currentSsid != null && currentSsid == rule.condition
                     RuleType.CARRIER -> currentCarrier != null && currentCarrier.contains(rule.condition, ignoreCase = true)
+                    RuleType.FALLBACK -> false // Handled by fallback loop in AutomationService
                 }
 
                 if (matches) {
@@ -191,6 +194,7 @@ class RuleEngine(private val context: Context) {
                         Log.d(TAG, "  运营商匹配: 当前运营商=[$currentCarrier] vs 规则条件=[${rule.condition}] -> $result")
                         result
                     }
+                    RuleType.FALLBACK -> false // Handled by fallback loop in AutomationService
                 }
 
                 val matches = if (rule.negate) !rawMatch else rawMatch
@@ -405,6 +409,103 @@ class RuleEngine(private val context: Context) {
         }
         Log.e(TAG, "ISP lookup failed after $maxRetries attempts")
         return@withContext null
+    }
+
+    /**
+     * Run one fallback cycle for a FALLBACK rule.
+     * Iterates through the proxy group's all[] list starting from index 0.
+     * Tests each proxy via the Mihomo delay API; on success switches to that proxy.
+     * Returns true if a proxy switch was performed.
+     */
+    suspend fun runFallbackCycle(rule: top.jarman.autoclash.data.model.AutomationRule): Boolean {
+        val isLoggingEnabled = logRepo.isLogEnabled()
+        val baseUrl = settingsRepo.apiBaseUrl.first()
+        val secret = settingsRepo.apiSecret.first()
+
+        if (baseUrl.isBlank()) {
+            Log.w(TAG, "Fallback: API not configured, skipping")
+            return false
+        }
+
+        val api = ApiClient.getApi(baseUrl, secret)
+        val repo = MihomoRepository(api)
+
+        val group = repo.getProxyGroup(rule.groupName).getOrNull() ?: run {
+            Log.e(TAG, "Fallback: Cannot get proxy group ${rule.groupName}")
+            if (isLoggingEnabled) logRepo.e(TAG, "Fallback: 无法获取策略组 ${rule.groupName}")
+            return false
+        }
+        val proxies = group.all ?: run {
+            Log.e(TAG, "Fallback: No proxies in group ${rule.groupName}")
+            return false
+        }
+        if (proxies.isEmpty()) return false
+
+        Log.i(TAG, "========== Fallback 检测开始: ${rule.groupName} (${proxies.size}个节点) ==========")
+        if (isLoggingEnabled) {
+            logRepo.i(TAG, "Fallback 检测开始: ${rule.groupName}，共 ${proxies.size} 个节点，检测地址: ${rule.testUrl}")
+        }
+
+        for ((index, proxy) in proxies.withIndex()) {
+            Log.d(TAG, "Fallback: 检测 [$proxy] (index=$index)")
+            if (isLoggingEnabled) logRepo.d(TAG, "Fallback: 检测节点 $proxy (第 ${index + 1}/${proxies.size} 个)")
+
+            val reachable = checkProxyConnectivity(repo, proxy, rule.testUrl, rule.retryCount, rule.retryIntervalSecs, isLoggingEnabled)
+
+            if (reachable) {
+                val currentProxy = group.now
+                if (currentProxy == proxy) {
+                    Log.i(TAG, "Fallback: [$proxy] 可用且已是当前节点，无需切换")
+                    if (isLoggingEnabled) logRepo.i(TAG, "Fallback: $proxy 可用且已是当前节点")
+                    return false
+                }
+                Log.i(TAG, "Fallback: [$proxy] 可用，切换 ${rule.groupName} -> $proxy")
+                val result = repo.switchProxy(rule.groupName, proxy)
+                if (result.isSuccess) {
+                    Log.i(TAG, "Fallback: ✅ 切换成功 ${rule.groupName} -> $proxy")
+                    if (isLoggingEnabled) logRepo.i(TAG, "Fallback ✅ 切换成功: ${rule.groupName} -> $proxy")
+                } else {
+                    Log.e(TAG, "Fallback: ❌ 切换失败: ${result.exceptionOrNull()?.message}")
+                    if (isLoggingEnabled) logRepo.e(TAG, "Fallback ❌ 切换失败: ${rule.groupName} -> $proxy")
+                }
+                return result.isSuccess
+            }
+
+            Log.w(TAG, "Fallback: [$proxy] 不可用，尝试下一个节点")
+            if (isLoggingEnabled) logRepo.w(TAG, "Fallback: $proxy 不可用，尝试下一个节点")
+        }
+
+        Log.e(TAG, "Fallback: ❌ ${rule.groupName} 所有节点均不可用")
+        if (isLoggingEnabled) logRepo.e(TAG, "Fallback ❌ ${rule.groupName} 所有节点均不可用")
+        return false
+    }
+
+    /**
+     * Test connectivity of a proxy via Mihomo delay API.
+     * Retries up to [retryCount] times with [retryIntervalSecs] delay between attempts.
+     * retryCount=0 means no retry (single attempt only).
+     */
+    private suspend fun checkProxyConnectivity(
+        repo: MihomoRepository,
+        proxyName: String,
+        testUrl: String,
+        retryCount: Int,
+        retryIntervalSecs: Int,
+        isLoggingEnabled: Boolean
+    ): Boolean {
+        var attempt = 0
+        while (true) {
+            val result = repo.testProxyDelay(proxyName, testUrl)
+            if (result.isSuccess) {
+                Log.d(TAG, "Fallback: [$proxyName] 延迟 ${result.getOrDefault(0)}ms")
+                return true
+            }
+            if (attempt >= retryCount) return false
+            attempt++
+            Log.d(TAG, "Fallback: [$proxyName] 第 $attempt 次重试，等待 ${retryIntervalSecs}s")
+            if (isLoggingEnabled) logRepo.d(TAG, "Fallback: $proxyName 不可用，第 $attempt 次重试")
+            kotlinx.coroutines.delay(retryIntervalSecs * 1000L)
+        }
     }
 
     /**

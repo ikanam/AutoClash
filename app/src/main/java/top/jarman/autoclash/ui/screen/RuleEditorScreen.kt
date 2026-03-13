@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
@@ -21,12 +22,14 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import androidx.lifecycle.viewmodel.compose.viewModel
 import top.jarman.autoclash.data.model.AutomationRule
 import top.jarman.autoclash.data.model.RuleType
+import top.jarman.autoclash.ui.viewmodel.RuleDialogResult
 import top.jarman.autoclash.ui.viewmodel.RuleEditorViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -252,17 +255,19 @@ fun RuleEditorScreen(
         if (uiState.showAddDialog) {
             RuleDialog(
                 editingRule = uiState.editingRule,
+                existingRules = uiState.rules,
                 allProxies = uiState.allProxies,
                 hasShownIspWarning = uiState.hasShownIspWarning,
                 onIspWarningShown = viewModel::markIspWarningAsShown,
                 onDismiss = viewModel::dismissDialog,
-                onConfirm = { type, condition, proxy, negate ->
+                onConfirm = { result ->
                     if (uiState.editingRule != null) {
-                        viewModel.updateRule(type, condition, proxy, negate)
+                        viewModel.updateRule(result)
                     } else {
-                        viewModel.addRule(type, condition, proxy, negate)
+                        viewModel.addRule(result)
                     }
-                }
+                },
+                onCheckConflict = { type -> viewModel.checkConflict(type, uiState.rules, uiState.editingRule?.id) }
             )
         }
     }
@@ -280,6 +285,7 @@ private fun RuleCard(
     val (icon, color) = when (rule.ruleType) {
         RuleType.WLAN -> Icons.Default.Wifi to MaterialTheme.colorScheme.secondary
         RuleType.CARRIER -> Icons.Default.SimCard to MaterialTheme.colorScheme.primary
+        RuleType.FALLBACK -> Icons.Default.Loop to MaterialTheme.colorScheme.tertiary
     }
 
     Card(
@@ -355,12 +361,21 @@ private fun RuleCard(
                     )
                 )
                 Spacer(modifier = Modifier.height(2.dp))
-                Text(
-                    "→ ${rule.targetProxy}",
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Medium,
-                    color = color.copy(alpha = if (rule.enabled) 1f else 0.5f)
-                )
+                if (rule.ruleType == RuleType.FALLBACK) {
+                    Text(
+                        "每 ${rule.checkIntervalSecs}s · 失败重试 ${rule.retryCount} 次",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = color.copy(alpha = if (rule.enabled) 1f else 0.5f)
+                    )
+                } else {
+                    Text(
+                        "→ ${rule.targetProxy}",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = color.copy(alpha = if (rule.enabled) 1f else 0.5f)
+                    )
+                }
             }
 
             IconButton(onClick = onDelete) {
@@ -385,6 +400,7 @@ private fun conditionDescription(rule: AutomationRule): String {
     return when (rule.ruleType) {
         RuleType.WLAN -> "WiFi: ${prefix}${rule.condition}"
         RuleType.CARRIER -> "ISP: ${prefix}${rule.condition}"
+        RuleType.FALLBACK -> "检测: ${rule.testUrl.ifBlank { "(未设置)" }}"
     }
 }
 
@@ -392,11 +408,13 @@ private fun conditionDescription(rule: AutomationRule): String {
 @Composable
 private fun RuleDialog(
     editingRule: AutomationRule?,
+    existingRules: List<AutomationRule>,
     allProxies: List<String>,
     hasShownIspWarning: Boolean,
     onIspWarningShown: () -> Unit,
     onDismiss: () -> Unit,
-    onConfirm: (RuleType, String, String, Boolean) -> Unit
+    onConfirm: (RuleDialogResult) -> Unit,
+    onCheckConflict: (RuleType) -> String?
 ) {
     val isEditing = editingRule != null
     var selectedType by remember { mutableStateOf(editingRule?.ruleType ?: RuleType.WLAN) }
@@ -406,13 +424,22 @@ private fun RuleDialog(
     var negate by remember { mutableStateOf(editingRule?.negate ?: false) }
     var showIspWarning by remember { mutableStateOf(false) }
 
+    // Fallback-specific fields
+    var testUrl by remember { mutableStateOf(editingRule?.testUrl?.ifBlank { "http://www.gstatic.com/generate_204" } ?: "http://www.gstatic.com/generate_204") }
+    var checkIntervalStr by remember { mutableStateOf((editingRule?.checkIntervalSecs ?: 60).toString()) }
+    var retryCountStr by remember { mutableStateOf((editingRule?.retryCount ?: 1).toString()) }
+    var retryIntervalStr by remember { mutableStateOf((editingRule?.retryIntervalSecs ?: 5).toString()) }
+
+    // Live conflict check
+    val conflictMessage = remember(selectedType) { onCheckConflict(selectedType) }
+
     if (showIspWarning) {
         AlertDialog(
             onDismissRequest = { showIspWarning = false },
             title = { Text("注意事项", fontWeight = FontWeight.Bold) },
             text = { Text("获取ISP依赖api.ip.sb接口，请确保该接口(api.ip.sb)走**直连**，否则可能导致ISP识别错误。") },
             confirmButton = {
-                TextButton(onClick = { 
+                TextButton(onClick = {
                     showIspWarning = false
                     onIspWarningShown()
                 }) {
@@ -457,6 +484,7 @@ private fun RuleDialog(
                                     when (type) {
                                         RuleType.WLAN -> "WiFi"
                                         RuleType.CARRIER -> "ISP"
+                                        RuleType.FALLBACK -> "Fallback"
                                     },
                                     fontSize = 13.sp
                                 )
@@ -466,6 +494,7 @@ private fun RuleDialog(
                                     when (type) {
                                         RuleType.WLAN -> Icons.Default.Wifi
                                         RuleType.CARRIER -> Icons.Default.SimCard
+                                        RuleType.FALLBACK -> Icons.Default.Loop
                                     },
                                     contentDescription = null,
                                     modifier = Modifier.size(16.dp)
@@ -475,104 +504,173 @@ private fun RuleDialog(
                     }
                 }
 
-                // Condition input
-                if (selectedType == RuleType.WLAN) {
+                // Conflict warning
+                if (conflictMessage != null) {
+                    Card(
+                        shape = RoundedCornerShape(8.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.errorContainer
+                        )
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                Icons.Default.Warning,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                conflictMessage,
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.onErrorContainer
+                            )
+                        }
+                    }
+                }
+
+                if (selectedType == RuleType.FALLBACK) {
+                    // Fallback: test URL
                     OutlinedTextField(
-                        value = condition,
-                        onValueChange = { condition = it },
-                        label = { Text("WiFi 名称 (SSID)") },
-                        placeholder = { Text("MyWiFi") },
+                        value = testUrl,
+                        onValueChange = { testUrl = it },
+                        label = { Text("检测地址 (test-url)") },
+                        placeholder = { Text("https://www.google.com") },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true,
                         shape = RoundedCornerShape(12.dp)
                     )
+                    // Check interval
+                    OutlinedTextField(
+                        value = checkIntervalStr,
+                        onValueChange = { checkIntervalStr = it.filter { c -> c.isDigit() } },
+                        label = { Text("检测间隔（秒，默认 60）") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        shape = RoundedCornerShape(12.dp)
+                    )
+                    // Retry count
+                    OutlinedTextField(
+                        value = retryCountStr,
+                        onValueChange = { retryCountStr = it.filter { c -> c.isDigit() } },
+                        label = { Text("重试次数（0 为不重试，默认 1）") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        shape = RoundedCornerShape(12.dp)
+                    )
+                    // Retry interval
+                    OutlinedTextField(
+                        value = retryIntervalStr,
+                        onValueChange = { retryIntervalStr = it.filter { c -> c.isDigit() } },
+                        label = { Text("重试间隔（秒，默认 5）") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        shape = RoundedCornerShape(12.dp)
+                    )
                 } else {
-                    // ISP (CARRIER) — dropdown selector
-                    val ispOptions = listOf("中国电信", "中国联通", "中国移动")
-                    var ispExpanded by remember { mutableStateOf(false) }
-                    // Pre-select first option if condition is empty
-                    if (condition.isEmpty()) condition = ispOptions[0]
-
-                    ExposedDropdownMenuBox(
-                        expanded = ispExpanded,
-                        onExpandedChange = { ispExpanded = it },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
+                    // WLAN / CARRIER condition input
+                    if (selectedType == RuleType.WLAN) {
                         OutlinedTextField(
                             value = condition,
+                            onValueChange = { condition = it },
+                            label = { Text("WiFi 名称 (SSID)") },
+                            placeholder = { Text("MyWiFi") },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                            shape = RoundedCornerShape(12.dp)
+                        )
+                    } else {
+                        val ispOptions = listOf("中国电信", "中国联通", "中国移动")
+                        var ispExpanded by remember { mutableStateOf(false) }
+                        if (condition.isEmpty()) condition = ispOptions[0]
+
+                        ExposedDropdownMenuBox(
+                            expanded = ispExpanded,
+                            onExpandedChange = { ispExpanded = it },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            OutlinedTextField(
+                                value = condition,
+                                onValueChange = {},
+                                readOnly = true,
+                                label = { Text("ISP") },
+                                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = ispExpanded) },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .menuAnchor(),
+                                shape = RoundedCornerShape(12.dp)
+                            )
+                            ExposedDropdownMenu(
+                                expanded = ispExpanded,
+                                onDismissRequest = { ispExpanded = false }
+                            ) {
+                                ispOptions.forEach { isp ->
+                                    DropdownMenuItem(
+                                        text = { Text(isp) },
+                                        onClick = {
+                                            condition = isp
+                                            ispExpanded = false
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    // Negate checkbox (WLAN/CARRIER only)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Checkbox(
+                            checked = negate,
+                            onCheckedChange = { negate = it }
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            "取反匹配（不满足条件时触发）",
+                            fontSize = 14.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+
+                    // Target proxy dropdown (WLAN/CARRIER only)
+                    ExposedDropdownMenuBox(
+                        expanded = proxyDropdownExpanded,
+                        onExpandedChange = { proxyDropdownExpanded = it }
+                    ) {
+                        OutlinedTextField(
+                            value = selectedProxy,
                             onValueChange = {},
                             readOnly = true,
-                            label = { Text("ISP") },
-                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = ispExpanded) },
+                            label = { Text("目标节点") },
+                            trailingIcon = {
+                                ExposedDropdownMenuDefaults.TrailingIcon(expanded = proxyDropdownExpanded)
+                            },
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .menuAnchor(),
                             shape = RoundedCornerShape(12.dp)
                         )
                         ExposedDropdownMenu(
-                            expanded = ispExpanded,
-                            onDismissRequest = { ispExpanded = false }
+                            expanded = proxyDropdownExpanded,
+                            onDismissRequest = { proxyDropdownExpanded = false }
                         ) {
-                            ispOptions.forEach { isp ->
+                            allProxies.forEach { proxy ->
                                 DropdownMenuItem(
-                                    text = { Text(isp) },
+                                    text = { Text(proxy) },
                                     onClick = {
-                                        condition = isp
-                                        ispExpanded = false
+                                        selectedProxy = proxy
+                                        proxyDropdownExpanded = false
                                     }
                                 )
                             }
-                        }
-                    }
-                }
-
-                // Negate checkbox
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Checkbox(
-                        checked = negate,
-                        onCheckedChange = { negate = it }
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(
-                        "取反匹配（不满足条件时触发）",
-                        fontSize = 14.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-
-                // Target proxy dropdown
-                ExposedDropdownMenuBox(
-                    expanded = proxyDropdownExpanded,
-                    onExpandedChange = { proxyDropdownExpanded = it }
-                ) {
-                    OutlinedTextField(
-                        value = selectedProxy,
-                        onValueChange = {},
-                        readOnly = true,
-                        label = { Text("目标节点") },
-                        trailingIcon = {
-                            ExposedDropdownMenuDefaults.TrailingIcon(expanded = proxyDropdownExpanded)
-                        },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .menuAnchor(),
-                        shape = RoundedCornerShape(12.dp)
-                    )
-                    ExposedDropdownMenu(
-                        expanded = proxyDropdownExpanded,
-                        onDismissRequest = { proxyDropdownExpanded = false }
-                    ) {
-                        allProxies.forEach { proxy ->
-                            DropdownMenuItem(
-                                text = { Text(proxy) },
-                                onClick = {
-                                    selectedProxy = proxy
-                                    proxyDropdownExpanded = false
-                                }
-                            )
                         }
                     }
                 }
@@ -580,8 +678,36 @@ private fun RuleDialog(
         },
         confirmButton = {
             TextButton(
-                onClick = { onConfirm(selectedType, condition, selectedProxy, negate) },
-                enabled = condition.isNotBlank() && selectedProxy.isNotBlank()
+                onClick = {
+                    if (selectedType == RuleType.FALLBACK) {
+                        onConfirm(
+                            RuleDialogResult(
+                                ruleType = RuleType.FALLBACK,
+                                condition = "",
+                                targetProxy = "",
+                                negate = false,
+                                testUrl = testUrl,
+                                checkIntervalSecs = checkIntervalStr.toIntOrNull()?.coerceAtLeast(1) ?: 60,
+                                retryCount = retryCountStr.toIntOrNull()?.coerceAtLeast(0) ?: 1,
+                                retryIntervalSecs = retryIntervalStr.toIntOrNull()?.coerceAtLeast(1) ?: 5
+                            )
+                        )
+                    } else {
+                        onConfirm(
+                            RuleDialogResult(
+                                ruleType = selectedType,
+                                condition = condition,
+                                targetProxy = selectedProxy,
+                                negate = negate
+                            )
+                        )
+                    }
+                },
+                enabled = conflictMessage == null && if (selectedType == RuleType.FALLBACK) {
+                    testUrl.isNotBlank()
+                } else {
+                    condition.isNotBlank() && selectedProxy.isNotBlank()
+                }
             ) {
                 Text(if (isEditing) "保存" else "添加")
             }
